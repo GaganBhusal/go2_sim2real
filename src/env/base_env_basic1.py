@@ -18,17 +18,18 @@ class WalkENV(gym.Env):
 
         self.device = device
         self.num_envs = num_envs
-        self.max_episode_length = 100000
+        self.max_episode_length = 1000
 
 
         # Basic Parameters
         self.height_range = 0.3
-        self.vx_range = (-0.5, 1.0)
-        self.wz_range = (-1.2, 1.2)
+        self.vx_range = (0.0, 1.0)
+        self.wz_range = (-0.6, 0.6)
         self.pitch_range = (-0.15, 0.15)
         self.action_scale = 0.25
         self.time_step = 0
-        self.sigma = 0.25
+        self.sigma_vx = 0.25
+        self.sigma_wz = 0.10
         self.dt = 0.02
         self.global_gravity = torch.tensor([0.0, 0.0, -1.0], device=gs.device)
         self.episode_length_buf = torch.zeros(self.num_envs, dtype=torch.int, device=self.device)
@@ -119,10 +120,11 @@ class WalkENV(gym.Env):
                 ),
             )
 
-        self._get_internal_info()
         self._setup_force_sensor()
-
         self.scene.build(n_envs = self.num_envs, env_spacing = (5.0, 5.0))
+        
+        self._get_internal_info()
+
         self.robot.set_dofs_kp(torch.tensor([40] * 12),dofs_idx_local = self.joints_local_idx)
         self.robot.set_dofs_kv(torch.tensor([1] * 12),dofs_idx_local = self.joints_local_idx)
         self.domainrandomizer = DomainRandomization(self.robot, self.num_envs, self.joints_local_idx)
@@ -197,11 +199,11 @@ class WalkENV(gym.Env):
                 (-60, 60), 
                 (-60, 60), 
 
-                (-200, 90), 
-                (-200, 90), 
+                (-90, 200), 
+                (-90, 200), 
 
-                (-260, 30), 
-                (-260, 30), 
+                (-30, 260), 
+                (-30, 260), 
 
                 (-156, -48), 
                 (-156, -48), 
@@ -252,6 +254,7 @@ class WalkENV(gym.Env):
         self.episode_sums = {
             "reward_for_tracking_vx": torch.zeros(self.num_envs, dtype=torch.float, device=self.device),
             "reward_for_tracking_wz": torch.zeros(self.num_envs, dtype=torch.float, device=self.device),
+            "vy_penalty": torch.zeros(self.num_envs, dtype=torch.float, device=self.device),
             "height_penalty": torch.zeros(self.num_envs, dtype=torch.float, device=self.device),
             "pitch_penalty" : torch.zeros(self.num_envs, dtype=torch.float, device=self.device),
             "lin_vel_z_penalty": torch.zeros(self.num_envs, dtype=torch.float, device=self.device),
@@ -263,6 +266,7 @@ class WalkENV(gym.Env):
             "joint_vel_penalty" : torch.zeros(self.num_envs, dtype=torch.float, device=self.device),
             "out_of_range_penalty": torch.zeros(self.num_envs, dtype=torch.float, device=self.device),
             "collision_penalty": torch.zeros(self.num_envs, dtype=torch.float, device=self.device),
+
             # "feet_air_time": torch.zeros(self.num_envs, dtype=torch.float, device=self.device),
             # "foot_slip_penalty": torch.zeros(self.num_envs, dtype=torch.float, device=self.device),
             # "swing_phase_penalty": torch.zeros(self.num_envs, dtype=torch.float, device=self.device),
@@ -274,6 +278,7 @@ class WalkENV(gym.Env):
         }
         
         # self.update_cam()
+        _, self.base_ang_vel = self._get_imu_values()
 
     def _setup_force_sensor(self):
         self.contact_sensors = []
@@ -307,7 +312,6 @@ class WalkENV(gym.Env):
 
 
     def _get_imu_values(self):
-        imu_value = self.imu.read()
         linear_acceleration, _angular_vel, magnetometer = self.imu.read()
 
         return linear_acceleration, _angular_vel
@@ -338,7 +342,7 @@ class WalkENV(gym.Env):
         # Values for calculating Reward
         base_pos = self.robot.get_link("base").get_pos()
         base_vel = self.robot.get_link("base").get_vel()
-        _, base_ang_vel = self._get_imu_values()
+        # _, base_ang_vel = self._get_imu_values()
         dof_pos = self.robot.get_dofs_position(dofs_idx_local=self.joints_local_idx)
         dof_vel = self.robot.get_dofs_velocity(dofs_idx_local=self.joints_local_idx)
         torques = self.robot.get_dofs_control_force(dofs_idx_local=self.joints_local_idx)
@@ -348,7 +352,7 @@ class WalkENV(gym.Env):
 
         vx = base_lin_vel_body[:, 0]
         vy = base_lin_vel_body[:, 1]
-        wz = base_ang_vel[:, 2]
+        wz = self.base_ang_vel[:, 2]
         vz = base_lin_vel_body[:, 2]
         base_x_pos = base_pos[:, 0]
         base_y_pos = base_pos[:, 1]
@@ -386,20 +390,20 @@ class WalkENV(gym.Env):
         collision_forces = self._get_collision_forces()
                 
         # Rewards and Penalty for Custom Commands
-        reward_for_tracking_vx = torch.exp(-torch.square(self.custom_commands[:, 0] - vx) / self.sigma)
-        reward_for_tracking_wz = torch.exp(-torch.square(self.custom_commands[:, 1] - wz) / self.sigma)
+        reward_for_tracking_vx = torch.exp(-torch.square(self.custom_commands[:, 0] - vx) / self.sigma_vx)
+        reward_for_tracking_wz = torch.exp(-torch.square(self.custom_commands[:, 1] - wz) / self.sigma_wz)
         height_penalty = torch.square(base_height - self.height_range)
-        # pitch_penalty = torch.square(current_pitch - self.custom_commands[:, 2])
+        pitch_penalty = torch.square(current_pitch)
         
         # Additional Penaties
         lin_vel_z_penalty = torch.square(vz)
-        roll_pitch_velocity_penalty = torch.sum(torch.square(base_ang_vel[:, :2]), dim=1)
+        roll_pitch_velocity_penalty = torch.sum(torch.square(self.base_ang_vel[:, :2]), dim=1)
         action_rate_penalty = torch.sum(torch.square(self.actions - self.last_actions), dim=1)
         second_order_action_rate = torch.sum(torch.square(self.second_last_actions - 2 * self.last_actions + self.actions), dim=1)
         reward_similar_to_default = torch.sum(torch.square(dof_pos - self.__initial_positions), dim=1)
         torque_penalty = torch.sum(torch.square(torques), dim=1)
         joint_vel_penalty = torch.sum(torch.square(dof_vel), dim=1)
-        out_of_range_penalty = torch.sum((dof_pos < self.joint_limits[:, 0]) | (dof_pos > self.joint_limits[:, 1]), dim=1)
+        out_of_range_penalty = torch.sum((dof_pos < self.URDF_specified_joint_limits[:, 0]) | (dof_pos > self.URDF_specified_joint_limits[:, 1]), dim=1)
         collision_penalty = (collision_forces > 1.0).any(dim=-1)
         
         # reward_feet_air_time = torch.sum(torch.exp(-torch.square(self.feet_air_time - target_air_time) / (0.1)) * first_contact, dim=1)
@@ -437,8 +441,9 @@ class WalkENV(gym.Env):
 
         reward_for_tracking_vx = + 3.0 * reward_for_tracking_vx
         reward_for_tracking_wz = + 2 * reward_for_tracking_wz
+        vy_penalty = - 0.5 * torch.square(vy)
         height_penalty = - 30.0 * height_penalty
-        # pitch_penalty = - 5.0 * pitch_penalty
+        pitch_penalty = - 5.0 * pitch_penalty
         lin_vel_z_penalty = - 0.02 * lin_vel_z_penalty
         roll_pitch_velocity_penalty = - 0.001 * roll_pitch_velocity_penalty
         action_rate_penalty = - 0.01 * action_rate_penalty
@@ -447,7 +452,7 @@ class WalkENV(gym.Env):
         torque_penalty = - 0.001 * torque_penalty
         joint_vel_penalty = - 0.005 * joint_vel_penalty
         out_of_range_penalty = - 0.5 * out_of_range_penalty
-        # collision_penalty = - 1.0 * collision_penalty
+        collision_penalty = - 1.0 * collision_penalty
 
         # reward_feet_air_time = + 1.0 * reward_feet_air_time
         # foot_slip_penalty = - 5 * foot_slip_penalty
@@ -460,8 +465,9 @@ class WalkENV(gym.Env):
         reward = (
             reward_for_tracking_vx
             + reward_for_tracking_wz
+            + vy_penalty
             + height_penalty
-            # + pitch_penalty
+            + pitch_penalty
             + lin_vel_z_penalty
             + roll_pitch_velocity_penalty
             + action_rate_penalty
@@ -482,16 +488,17 @@ class WalkENV(gym.Env):
 
 
         euler = self._quat_to_euler(base_quat)
-        terminated = ((torch.abs(euler[:, 0]) > 0.5) | (torch.abs(euler[:, 1]) > 0.5) | (base_height < 0.18))
-        out_of_trajectory = (base_x_pos < 0.5) | (base_x_pos > self.terrain_length-0.5) | (base_y_pos < 0.5) | (base_y_pos > self.terrain_breadth - 0.5)
+        terminated = ((torch.abs(euler[:, 0]) > 0.26) | (torch.abs(euler[:, 1]) > 0.26) | (base_height < 0.18))
+        # out_of_trajectory = (base_x_pos < 0.5) | (base_x_pos > self.terrain_length-0.5) | (base_y_pos < 0.5) | (base_y_pos > self.terrain_breadth - 0.5)
         out_of_trajectory = False
         reward[terminated] -= 500
 
         
         self.episode_sums["reward_for_tracking_vx"] += reward_for_tracking_vx
         self.episode_sums["reward_for_tracking_wz"] += reward_for_tracking_wz
+        self.episode_sums["vy_penalty"] += vy_penalty
         self.episode_sums["height_penalty"] += height_penalty
-        # self.episode_sums["pitch_penalty"] += pitch_penalty
+        self.episode_sums["pitch_penalty"] += pitch_penalty
         self.episode_sums["lin_vel_z_penalty"] += lin_vel_z_penalty
         self.episode_sums["roll_pitch_velocity_penalty"] += roll_pitch_velocity_penalty
         self.episode_sums["action_rate_penalty"] += action_rate_penalty
@@ -527,7 +534,7 @@ class WalkENV(gym.Env):
     def _get_obs(self):
         
         self.base_pos = self.robot.get_link("base").get_pos()
-        self.linear_acc, self.base_ang_vel = self._get_imu_values()
+        # self.linear_acc, self.base_ang_vel = self._get_imu_values()
         self.base_quat = self.robot.get_link("base").get_quat()
         self.base_lin_vel_body = self.__get_linear_velocity()
         projected_gravity = self._calculate_projected_acceleration()
@@ -652,7 +659,7 @@ class WalkENV(gym.Env):
         self.robot.control_dofs_position(target_dof_pos, dofs_idx_local = self.joints_local_idx)
         self.scene.step()
         self.command_envs += 1
-    
+        _, self.base_ang_vel = self._get_imu_values()
         reward, terminated, out_of_trajectory = self._calculate_reward()
 
         self.episode_length_buf += 1
