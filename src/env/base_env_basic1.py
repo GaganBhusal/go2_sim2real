@@ -194,10 +194,10 @@ class WalkENV(gym.Env):
 
         self.URDF_specified_joint_limits = torch.deg2rad(
             torch.tensor([
-                (-60, 60), 
-                (-60, 60),
-                (-60, 60), 
-                (-60, 60), 
+                (-10, 10),              # actual urdf specified is (-60 to 60) but limitting hip movement further to prevent excessive joint movement. 
+                (-10, 10),              # actual urdf specified is (-60 to 60) but limitting hip movement further to prevent excessive joint movement.
+                (-10, 10),              # actual urdf specified is (-60 to 60) but limitting hip movement further to prevent excessive joint movement. 
+                (-10, 10),              # actual urdf specified is (-60 to 60) but limitting hip movement further to prevent excessive joint movement. 
 
                 (-90, 200), 
                 (-90, 200), 
@@ -258,6 +258,7 @@ class WalkENV(gym.Env):
             "height_penalty": torch.zeros(self.num_envs, dtype=torch.float, device=self.device),
             "pitch_penalty" : torch.zeros(self.num_envs, dtype=torch.float, device=self.device),
             "yaw_penalty" : torch.zeros(self.num_envs, dtype=torch.float, device=self.device),
+            "hip_deviation_penalty": torch.zeros(self.num_envs, dtype=torch.float, device=self.device),
             "lin_vel_z_penalty": torch.zeros(self.num_envs, dtype=torch.float, device=self.device),
             "roll_pitch_velocity_penalty": torch.zeros(self.num_envs, dtype=torch.float, device=self.device),
             "action_rate_penalty": torch.zeros(self.num_envs, dtype=torch.float, device=self.device),
@@ -397,8 +398,9 @@ class WalkENV(gym.Env):
         reward_for_tracking_wz = torch.exp(-torch.square(self.custom_commands[:, 1] - wz) / self.sigma_wz)
         height_penalty = torch.square(base_height - self.height_range)
         pitch_penalty = torch.square(current_pitch)
-        yaw_penalty = torch.square(current_yaw)
+        yaw_penalty = torch.square(current_yaw - self.custom_commands[:, 1])
         # Additional Penaties
+        hip_deviation_penalty = torch.sum(torch.square(dof_pos[:, :4]), dim=1)
         lin_vel_z_penalty = torch.square(vz)
         roll_pitch_velocity_penalty = torch.sum(torch.square(self.base_ang_vel[:, :2]), dim=1)
         action_rate_penalty = torch.sum(torch.square(self.actions - self.last_actions), dim=1)
@@ -448,6 +450,7 @@ class WalkENV(gym.Env):
         height_penalty = - 30.0 * height_penalty
         pitch_penalty = - 5.0 * pitch_penalty
         yaw_penalty = - 2.0 * yaw_penalty
+        hip_deviation_penalty = - 2 * hip_deviation_penalty
         lin_vel_z_penalty = - 0.02 * lin_vel_z_penalty
         roll_pitch_velocity_penalty = - 0.001 * roll_pitch_velocity_penalty
         action_rate_penalty = - 0.01 * action_rate_penalty
@@ -473,6 +476,7 @@ class WalkENV(gym.Env):
             + height_penalty
             + pitch_penalty
             + yaw_penalty
+            + hip_deviation_penalty
             + lin_vel_z_penalty
             + roll_pitch_velocity_penalty
             + action_rate_penalty
@@ -505,6 +509,7 @@ class WalkENV(gym.Env):
         self.episode_sums["height_penalty"] += height_penalty
         self.episode_sums["pitch_penalty"] += pitch_penalty
         self.episode_sums["yaw_penalty"] += yaw_penalty
+        self.episode_sums["hip_deviation_penalty"] += hip_deviation_penalty
         self.episode_sums["lin_vel_z_penalty"] += lin_vel_z_penalty
         self.episode_sums["roll_pitch_velocity_penalty"] += roll_pitch_velocity_penalty
         self.episode_sums["action_rate_penalty"] += action_rate_penalty
@@ -554,8 +559,8 @@ class WalkENV(gym.Env):
         
         scaled_commands = torch.stack([
             self.custom_commands[:, 0] * 1.0,   
-            self.custom_commands[:, 1] * 0.5,
-        ], dim=1)
+            self.custom_commands[:, 1] * 1.0,
+        ], dim=1) #scal
 
         # _, depth_img, _, _ = self.cam_forward.render(depth=True)
         # print(torch.tensor(depth_img, dtype=torch.float32).unsqueeze(1).shape)
@@ -565,7 +570,7 @@ class WalkENV(gym.Env):
             self.base_lin_vel_body,                        # 3 
             self.base_ang_vel * 0.5,                       # 3
             projected_gravity ,                            # 3
-            self.ypr[:, :2],                               # 2
+            self.ypr[:, 2].unsqueeze(1),                                # 1
             dof_pos,                                       # 12
             dof_vel * 0.05,                                # 12
             self.actions,                                  # 12
@@ -654,8 +659,7 @@ class WalkENV(gym.Env):
     
         self.custom_commands[idx, 0] = torch.rand(len(idx), device=self.device) * (self.vx_range[1] - self.vx_range[0]) + self.vx_range[0]
         self.custom_commands[idx, 1] = torch.rand(len(idx), device=self.device) * (self.wz_range[1] - self.wz_range[0]) + self.wz_range[0]
-
-        self.command_envs[idx] = 0
+        self.custom_commands[idx[torch.rand(len(idx), device=self.device) < 0.15]] = 0.0
 
     def step(self, action):
 
@@ -665,7 +669,6 @@ class WalkENV(gym.Env):
         target_dof_pos = self.__initial_positions + action * self.action_scale
         self.robot.control_dofs_position(target_dof_pos, dofs_idx_local = self.joints_local_idx)
         self.scene.step()
-        self.command_envs += 1
         _, self.base_ang_vel = self._get_imu_values()
         self.ypr = self._get_ypr()
         reward, terminated, out_of_trajectory = self._calculate_reward()
