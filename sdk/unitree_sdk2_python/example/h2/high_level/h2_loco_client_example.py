@@ -2,8 +2,8 @@ import sys
 import time
 from dataclasses import dataclass
 
-from unitree_sdk2py.core.channel import ChannelFactoryInitialize
-from unitree_sdk2py.h2.loco.h2_loco_client import LocoClient
+from sdk.unitree_sdk2_python.unitree_sdk2py.core.channel import ChannelFactoryInitialize
+from sdk.unitree_sdk2_python.unitree_sdk2py.h2.loco.h2_loco_client import LocoClient
 
 
 @dataclass

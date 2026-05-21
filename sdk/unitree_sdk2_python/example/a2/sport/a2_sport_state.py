@@ -1,8 +1,8 @@
 import sys
 import time
 
-from unitree_sdk2py.core.channel import ChannelFactoryInitialize, ChannelSubscriber
-from unitree_sdk2py.idl.unitree_go.msg.dds_ import SportModeState_
+from sdk.unitree_sdk2_python.unitree_sdk2py.core.channel import ChannelFactoryInitialize, ChannelSubscriber
+from sdk.unitree_sdk2_python.unitree_sdk2py.idl.unitree_go.msg.dds_ import SportModeState_
 
 
 TOPIC_HIGHSTATE = "rt/lf/sportmodestate"

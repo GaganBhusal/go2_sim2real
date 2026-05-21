@@ -1,8 +1,8 @@
 import sys
 import time
 
-from unitree_sdk2py.core.channel import ChannelFactoryInitialize
-from unitree_sdk2py.a2.audio.audio_client import AudioClient
+from sdk.unitree_sdk2_python.unitree_sdk2py.core.channel import ChannelFactoryInitialize
+from sdk.unitree_sdk2_python.unitree_sdk2py.a2.audio.audio_client import AudioClient
 
 
 if __name__ == "__main__":

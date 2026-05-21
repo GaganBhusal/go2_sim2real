@@ -1,12 +1,12 @@
 import time
 
-from unitree_sdk2py.core.channel import ChannelPublisher, ChannelFactoryInitialize
-from unitree_sdk2py.core.channel import ChannelSubscriber, ChannelFactoryInitialize
-from unitree_sdk2py.idl.default import unitree_go_msg_dds__LowCmd_
-from unitree_sdk2py.idl.unitree_go.msg.dds_ import LowCmd_
-from unitree_sdk2py.utils.crc import CRC
-from unitree_sdk2py.utils.thread import Thread
-import unitree_go2_const as go2
+from sdk.unitree_sdk2_python.unitree_sdk2py.core.channel import ChannelPublisher, ChannelFactoryInitialize
+from sdk.unitree_sdk2_python.unitree_sdk2py.core.channel import ChannelSubscriber, ChannelFactoryInitialize
+from sdk.unitree_sdk2_python.unitree_sdk2py.idl.default import unitree_go_msg_dds__LowCmd_
+from sdk.unitree_sdk2_python.unitree_sdk2py.idl.unitree_go.msg.dds_ import LowCmd_
+from sdk.unitree_sdk2_python.unitree_sdk2py.utils.crc import CRC
+from sdk.unitree_sdk2_python.unitree_sdk2py.utils.thread import Thread
+import sdk.unitree_sdk2_python.unitree_sdk2py.test.lowlevel.unitree_go2_const as go2
 
 crc = CRC()
 lowCmdThreadPtr=Thread()
