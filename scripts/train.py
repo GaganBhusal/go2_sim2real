@@ -6,16 +6,25 @@ import genesis as gs
 import rsl_rl
 from rsl_rl.runners import OnPolicyRunner
 import yaml
+import argparse
 from src.env import WalkENV
+from configs.env_configs import WalkEnvCfg
 
 def main():
     gs.init(backend=gs.gpu, logging_level="warning")
 
-    exp_name = "go2_train_first"
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-e", "--exp_name", type=str, default="go2_train_first")
+    args = parser.parse_args()
+
+    exp_name = args.exp_name
     num_envs = 4096
     max_iterations = 10000
 
-    env = WalkENV(num_envs=num_envs, render=False, device=gs.device, plane=True)
+    config = WalkEnvCfg(device=gs.device, num_envs=num_envs)
+
+    env = WalkENV(config=config, render=False, plane=True)
 
     log_dir = f"logs/{exp_name}"
 
