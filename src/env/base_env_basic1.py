@@ -9,6 +9,8 @@ import random
 from src.utils import DomainRandomization
 # from src.utils import Sliders
 from tensordict import TensorDict
+from src.utils.math_utils import _quat_to_euler, _calculate_projected_acceleration
+
 
 class WalkENV(gym.Env):
 
@@ -248,7 +250,7 @@ class WalkENV(gym.Env):
             "reward_for_tracking_wz": torch.zeros(self.num_envs, dtype=torch.float, device=self.device),
             "vy_penalty": torch.zeros(self.num_envs, dtype=torch.float, device=self.device),
             "height_penalty": torch.zeros(self.num_envs, dtype=torch.float, device=self.device),
-            "pitch_penalty" : torch.zeros(self.num_envs, dtype=torch.float, device=self.device),
+            "roll_pitch_penalty" : torch.zeros(self.num_envs, dtype=torch.float, device=self.device),
             "yaw_penalty" : torch.zeros(self.num_envs, dtype=torch.float, device=self.device),
             "hip_deviation_penalty": torch.zeros(self.num_envs, dtype=torch.float, device=self.device),
             "lin_vel_z_penalty": torch.zeros(self.num_envs, dtype=torch.float, device=self.device),
@@ -316,10 +318,10 @@ class WalkENV(gym.Env):
         self.base_pos = self.robot.get_link("base").get_pos()
         _, self.base_ang_vel = self._get_imu_values()
         self.base_quat = self.robot.get_link("base").get_quat()
-        self.euler = self._quat_to_euler(self.base_quat)
+        self.euler = _quat_to_euler(self.base_quat)
         self.vel_body = self.robot.get_link("base").get_vel()
         self.base_lin_vel_body = self.__get_linear_velocity()
-        self.projected_gravity = self._calculate_projected_acceleration()
+        self.projected_gravity = _calculate_projected_acceleration(self.base_quat)
         self.dof_pos = self.robot.get_dofs_position(dofs_idx_local=self.joints_local_idx)
         self.dof_vel = self.robot.get_dofs_velocity(dofs_idx_local=self.joints_local_idx)
         self.torques = self.robot.get_dofs_control_force(dofs_idx_local=self.joints_local_idx)
@@ -370,7 +372,8 @@ class WalkENV(gym.Env):
         reward_for_tracking_vx = torch.exp(-torch.square(self.custom_commands[:, 0] - self.vx) / self.sigma_vx)
         reward_for_tracking_wz = torch.exp(-torch.square(self.custom_commands[:, 1] - self.wz) / self.sigma_wz)
         height_penalty = torch.square(self.base_height - self.height_range)
-        pitch_penalty = torch.square(self.current_pitch)
+        roll_pitch_penalty = torch.sum(torch.square(self.euler[:, :2]), dim=1)
+
         # yaw_penalty = torch.square(self.current_yaw - self.custom_commands[:, 1])
         # Additional Penaties
         hip_deviation_penalty = torch.sum(torch.square(self.dof_pos[:, :4]), dim=1)
@@ -421,7 +424,7 @@ class WalkENV(gym.Env):
         reward_for_tracking_wz = + 2 * reward_for_tracking_wz
         vy_penalty = - 0.5 * torch.square(self.vy)
         height_penalty = - 10.0 * height_penalty
-        pitch_penalty = - 5.0 * pitch_penalty
+        roll_pitch_penalty = - 5.0 * roll_pitch_penalty
         # yaw_penalty = - 2.0 * yaw_penalty
         hip_deviation_penalty = - 4.0 * hip_deviation_penalty
         lin_vel_z_penalty = - 0.02 * lin_vel_z_penalty
@@ -445,9 +448,9 @@ class WalkENV(gym.Env):
         reward = (
             reward_for_tracking_vx
             + reward_for_tracking_wz
-            + vy_penalty
+            # + vy_penalty
             + height_penalty
-            + pitch_penalty
+            + roll_pitch_penalty
             # + yaw_penalty
             + hip_deviation_penalty
             + lin_vel_z_penalty
@@ -479,7 +482,7 @@ class WalkENV(gym.Env):
         self.episode_sums["reward_for_tracking_wz"] += reward_for_tracking_wz
         self.episode_sums["vy_penalty"] += vy_penalty
         self.episode_sums["height_penalty"] += height_penalty
-        self.episode_sums["pitch_penalty"] += pitch_penalty
+        self.episode_sums["roll_pitch_penalty"] += roll_pitch_penalty
         # self.episode_sums["yaw_penalty"] += yaw_penalty
         self.episode_sums["hip_deviation_penalty"] += hip_deviation_penalty
         self.episode_sums["lin_vel_z_penalty"] += lin_vel_z_penalty
