@@ -22,7 +22,7 @@ class WalkENV(gym.Env):
 
 
         # Basic Parameters
-        self.height_range = 0.3
+        self.height_range = 0.31
         self.vx_range = (0.0, 1.0)
         self.wz_range = (-0.6, 0.6)
         self.pitch_range = (-0.15, 0.15)
@@ -125,21 +125,18 @@ class WalkENV(gym.Env):
         
         self._get_internal_info()
 
-        self.robot.set_dofs_kp(torch.tensor([40] * 12),dofs_idx_local = self.joints_local_idx)
-        self.robot.set_dofs_kv(torch.tensor([1] * 12),dofs_idx_local = self.joints_local_idx)
+        self.robot.set_dofs_kp(torch.tensor([40] * 12).to(self.device),dofs_idx_local = self.joints_local_idx)
+        self.robot.set_dofs_kv(torch.tensor([1] * 12).to(self.device),dofs_idx_local = self.joints_local_idx)
         self.domainrandomizer = DomainRandomization(self.robot, self.num_envs, self.joints_local_idx)
 
-        # Observations and actions
-        self.num_obs = 47
-        self.obs_history_length = 3
-        self.total_obs_len = 47
-        self.num_actions = 12
-        self.cfg = {}
 
         custom_commands_list = ["Velocity forward", "Angular Velocity XY Plane"]
         self.custom_commands = torch.zeros((self.num_envs, len(custom_commands_list)), device=self.device)
         self.command_envs = torch.zeros(self.num_envs, device=self.device)
 
+        self.total_obs_len = 48
+        self.num_actions = 12
+        self.cfg = {}
         self.observation_space = gym.spaces.Box(
             low=-np.inf,
             high=np.inf,
@@ -147,27 +144,24 @@ class WalkENV(gym.Env):
             dtype=float
         )
         
-        self.obs_histoy = torch.zeros((self.num_envs, self.total_obs_len), device = self.device)
-        self.obs_buf = torch.zeros((self.num_envs, self.total_obs_len), device=self.device)
-
         self.action_space = gym.spaces.Box(
             low=-1,
             high=1,
-            shape=(12, ),
+            shape=(self.num_actions, ),
             dtype=float
         )
 
         self.__initial_positions = torch.deg2rad(
             torch.tensor([
                 0, 0, 0, 0, 50, 50, 55, 55, -90, -90, -90, -90
-            ])
+            ]).to(self.device)
         )
         # The hip joints can be set between -90 to -125 for different height based movement and according to requirements.
 
         self.actions = torch.zeros((self.num_envs, 12), device=self.device)
-        self.last_actions = torch.zeros_like(self.actions)
-        self.second_last_actions = torch.zeros_like(self.actions)
-        self.last_dof_vel = torch.zeros((self.num_envs, 12))
+        self.last_actions = torch.zeros_like(self.actions, device=self.device)
+        self.second_last_actions = torch.zeros_like(self.actions, device=self.device)
+        self.last_dof_vel = torch.zeros((self.num_envs, 12), device=self.device)
 
         # Actual Joint Limits given in the Unitree Go2 specification.
         self.actual_joint_limits = torch.deg2rad(
@@ -188,7 +182,7 @@ class WalkENV(gym.Env):
                 (-156, -48), 
                 (-156, -48)
             ])
-        )
+        ).to(self.device)
 
         # The joint limits defined in the URDF
 
@@ -210,7 +204,7 @@ class WalkENV(gym.Env):
                 (-156, -48), 
                 (-156, -48)
             ])
-        )
+        ).to(self.device)
 
         # Joint limits I used while training
         self.joint_limits = torch.deg2rad(
@@ -231,9 +225,7 @@ class WalkENV(gym.Env):
                 (-140, -40),
                 (-140, -40)
             ])
-        )
-
-        self.__get_linear_velocity()
+        ).to(self.device)
     
         self.extras = dict()        
         self.extras["observations"] = dict()
@@ -275,13 +267,10 @@ class WalkENV(gym.Env):
             # "stance_phase_penalty": torch.zeros(self.num_envs, dtype=torch.float, device=self.device),
             # "foot_swing_height_penalty": torch.zeros(self.num_envs, dtype=torch.float, device=self.device),
             # "raibert_penalty": torch.zeros(self.num_envs, dtype=torch.float, device=self.device),
+            
             "reward_survival" : torch.zeros(self.num_envs, dtype=torch.float, device=self.device),
             "Reward_Per_Environment": torch.zeros(self.num_envs, dtype=torch.float, device=self.device),
         }
-        
-        # self.update_cam()
-        _, self.base_ang_vel = self._get_imu_values()
-        self.ypr = self._get_ypr()
 
     def _setup_force_sensor(self):
         self.contact_sensors = []
@@ -298,10 +287,8 @@ class WalkENV(gym.Env):
 
 
     def __get_linear_velocity(self):
-        vel_body = self.robot.get_link("base").get_vel()
-        base_quat = self.robot.get_link("base").get_quat()
-        vel_body = transform_by_quat(vel_body, inv_quat(base_quat))
-        return torch.tensor(vel_body)
+        vel_body = transform_by_quat(self.vel_body, inv_quat(self.base_quat))
+        return vel_body
 
 
     def _get_internal_info(self):
@@ -311,20 +298,11 @@ class WalkENV(gym.Env):
             for joint in joints:
                 print(f"Joint name: {joint.name}, local index: {joint.dof_idx_local}")
                 self.joints_local_idx.append(joint.dof_idx_local)
-                
-
 
     def _get_imu_values(self):
         linear_acceleration, _angular_vel, magnetometer = self.imu.read()
 
         return linear_acceleration, _angular_vel
-
-    def _get_ypr(self):
-        quat_wxyz = self.robot.get_link("base").get_quat()
-        quat_xyzw = torch.stack([quat_wxyz[:, 1], quat_wxyz[:, 2], quat_wxyz[:, 3], quat_wxyz[:, 0]], dim = 1)
-        rotation = Rotation.from_quat(quat_xyzw.detach().cpu().numpy())
-        euler_angles = rotation.as_euler("xyz")
-        return torch.tensor(np.array(euler_angles), dtype=torch.float)
 
     def _get_collision_forces(self):
         collision_forces = []
@@ -333,83 +311,78 @@ class WalkENV(gym.Env):
             collision_forces.append(contact_forces.norm(dim=-1))
         return torch.stack(collision_forces, dim=1)
 
-    def _calculate_projected_acceleration(self):
-        quat = self.robot.get_link("base").get_quat()
-        w, x, y, z = quat[:, 0], quat[:, 1], quat[:, 2], quat[:, 3]
-        gx = 2 * (x*z - w*y)
-        gy = 2 * (y*z + w*x)
-        gz = 1 - 2 * (x*x + y*y)
-        return torch.stack([-gx, -gy, -gz], dim=1)
+
+    def _get_all_values_at_once(self):
+        self.base_pos = self.robot.get_link("base").get_pos()
+        _, self.base_ang_vel = self._get_imu_values()
+        self.base_quat = self.robot.get_link("base").get_quat()
+        self.euler = self._quat_to_euler(self.base_quat)
+        self.vel_body = self.robot.get_link("base").get_vel()
+        self.base_lin_vel_body = self.__get_linear_velocity()
+        self.projected_gravity = self._calculate_projected_acceleration()
+        self.dof_pos = self.robot.get_dofs_position(dofs_idx_local=self.joints_local_idx)
+        self.dof_vel = self.robot.get_dofs_velocity(dofs_idx_local=self.joints_local_idx)
+        self.torques = self.robot.get_dofs_control_force(dofs_idx_local=self.joints_local_idx)
+        self.contact_forces = self.robot.get_links_net_contact_force()
+        self.collision_forces = self._get_collision_forces()
+
+        self.vx = self.base_lin_vel_body[:, 0]
+        self.vy = self.base_lin_vel_body[:, 1]
+        self.wz = self.base_ang_vel[:, 2]
+        self.vz = self.base_lin_vel_body[:, 2]
+        self.base_height = self.base_pos[:, 2]
+        self.current_pitch = self.euler[:, 1]
+        self.current_yaw = self.euler[:, 2]
 
     def _calculate_reward(self):
         # Values for calculating Reward
-        base_pos = self.robot.get_link("base").get_pos()
-        base_vel = self.robot.get_link("base").get_vel()
-        # _, base_ang_vel = self._get_imu_values()
-        dof_pos = self.robot.get_dofs_position(dofs_idx_local=self.joints_local_idx)
-        dof_vel = self.robot.get_dofs_velocity(dofs_idx_local=self.joints_local_idx)
-        torques = self.robot.get_dofs_control_force(dofs_idx_local=self.joints_local_idx)
 
-        base_quat = self.robot.get_link("base").get_quat()
-        base_lin_vel_body = self.__get_linear_velocity()
 
-        vx = base_lin_vel_body[:, 0]
-        vy = base_lin_vel_body[:, 1]
-        wz = self.base_ang_vel[:, 2]
-        vz = base_lin_vel_body[:, 2]
-        base_x_pos = base_pos[:, 0]
-        base_y_pos = base_pos[:, 1]
-        base_height = base_pos[:, 2]
-        current_pitch = self.ypr[:, 1]
-        current_yaw = self.ypr[:, 2]
+        # target_air_time = 0.4
+        # foot_forces_z = self.contact_forces[:, self.feet_idx, 2]
+        # # print(foot_forces_z[0])
+        # contact = foot_forces_z > 1.0
+        # first_contact = (self.feet_air_time > 0.0) & contact
 
-        target_air_time = 0.4
-        contact_forces = self.robot.get_links_net_contact_force()
-        foot_forces_z = contact_forces[:, self.feet_idx, 2]
-        # print(foot_forces_z[0])
-        contact = foot_forces_z > 1.0
-        first_contact = (self.feet_air_time > 0.0) & contact
+        # fl_vel = self.robot.get_link("FL_calf").get_vel()
+        # fr_vel = self.robot.get_link("FR_calf").get_vel()
+        # rl_vel = self.robot.get_link("RL_calf").get_vel()
+        # rr_vel = self.robot.get_link("RR_calf").get_vel()
+        # foot_velocities = torch.stack([fl_vel, fr_vel, rl_vel, rr_vel], dim=1)
+        # foot_position_z = torch.stack([
+        #     self.robot.get_link("FL_calf").get_pos()[:, 2],
+        #     self.robot.get_link("FR_calf").get_pos()[:, 2],
+        #     self.robot.get_link("RL_calf").get_pos()[:, 2],
+        #     self.robot.get_link("RR_calf").get_pos()[:, 2],
+        # ], dim=1)
 
-        fl_vel = self.robot.get_link("FL_calf").get_vel()
-        fr_vel = self.robot.get_link("FR_calf").get_vel()
-        rl_vel = self.robot.get_link("RL_calf").get_vel()
-        rr_vel = self.robot.get_link("RR_calf").get_vel()
-        foot_velocities = torch.stack([fl_vel, fr_vel, rl_vel, rr_vel], dim=1)
-        foot_position_z = torch.stack([
-            self.robot.get_link("FL_calf").get_pos()[:, 2],
-            self.robot.get_link("FR_calf").get_pos()[:, 2],
-            self.robot.get_link("RL_calf").get_pos()[:, 2],
-            self.robot.get_link("RR_calf").get_pos()[:, 2],
-        ], dim=1)
-
-        current_time = self.episode_length_buf * self.dt
-        leg_phases = (current_time.unsqueeze(1) * self.step_freq + self.trot_offsets) % 1.0
-        swing_progress = (leg_phases - 0.5) * 2.0 * torch.pi
-        target_z = torch.clamp(torch.sin(swing_progress) * self.target_foot_height, min=0.0)
-        swing_phase = leg_phases >= 0.5
-        stance_phase = leg_phases < 0.5
-        foot_xy_vel_penalty = torch.square(foot_velocities[:, :, 0] - self.custom_commands[:, 0].unsqueeze(1) * 2.0) + torch.square(foot_velocities[:, :, 1] - torch.zeros_like(self.custom_commands[:, 0]).unsqueeze(1))
+        # current_time = self.episode_length_buf * self.dt
+        # leg_phases = (current_time.unsqueeze(1) * self.step_freq + self.trot_offsets) % 1.0
+        # swing_progress = (leg_phases - 0.5) * 2.0 * torch.pi
+        # target_z = torch.clamp(torch.sin(swing_progress) * self.target_foot_height, min=0.0)
+        # swing_phase = leg_phases >= 0.5
+        # stance_phase = leg_phases < 0.5
+        # foot_xy_vel_penalty = torch.square(foot_velocities[:, :, 0] - self.custom_commands[:, 0].unsqueeze(1) * 2.0) + torch.square(foot_velocities[:, :, 1] - torch.zeros_like(self.custom_commands[:, 0]).unsqueeze(1))
         # print(swing_phase[0])
 
-        collision_forces = self._get_collision_forces()
                 
         # Rewards and Penalty for Custom Commands
-        reward_for_tracking_vx = torch.exp(-torch.square(self.custom_commands[:, 0] - vx) / self.sigma_vx)
-        reward_for_tracking_wz = torch.exp(-torch.square(self.custom_commands[:, 1] - wz) / self.sigma_wz)
-        height_penalty = torch.square(base_height - self.height_range)
-        pitch_penalty = torch.square(current_pitch)
-        yaw_penalty = torch.square(current_yaw - self.custom_commands[:, 1])
+        reward_for_tracking_vx = torch.exp(-torch.square(self.custom_commands[:, 0] - self.vx) / self.sigma_vx)
+        reward_for_tracking_wz = torch.exp(-torch.square(self.custom_commands[:, 1] - self.wz) / self.sigma_wz)
+        height_penalty = torch.square(self.base_height - self.height_range)
+        pitch_penalty = torch.square(self.current_pitch)
+        # yaw_penalty = torch.square(self.current_yaw - self.custom_commands[:, 1])
         # Additional Penaties
-        hip_deviation_penalty = torch.sum(torch.square(dof_pos[:, :4]), dim=1)
-        lin_vel_z_penalty = torch.square(vz)
+        hip_deviation_penalty = torch.sum(torch.square(self.dof_pos[:, :4]), dim=1)
+        lin_vel_z_penalty = torch.square(self.vz)
         roll_pitch_velocity_penalty = torch.sum(torch.square(self.base_ang_vel[:, :2]), dim=1)
         action_rate_penalty = torch.sum(torch.square(self.actions - self.last_actions), dim=1)
         second_order_action_rate = torch.sum(torch.square(self.second_last_actions - 2 * self.last_actions + self.actions), dim=1)
-        reward_similar_to_default = torch.sum(torch.square(dof_pos - self.__initial_positions), dim=1)
-        torque_penalty = torch.sum(torch.square(torques), dim=1)
-        joint_vel_penalty = torch.sum(torch.square(dof_vel), dim=1)
-        out_of_range_penalty = torch.sum((dof_pos < self.URDF_specified_joint_limits[:, 0]) | (dof_pos > self.URDF_specified_joint_limits[:, 1]), dim=1)
-        collision_penalty = (collision_forces > 1.0).any(dim=-1)
+        reward_similar_to_default = torch.sum(torch.square(self.dof_pos - self.__initial_positions), dim=1)
+        torque_penalty = torch.sum(torch.square(self.torques), dim=1)
+        joint_vel_penalty = torch.sum(torch.square(self.dof_vel), dim=1)
+        out_of_range_penalty = torch.sum((self.dof_pos < self.URDF_specified_joint_limits[:, 0]) | (self.dof_pos > self.URDF_specified_joint_limits[:, 1]), dim=1)
+        collision_penalty = (self.collision_forces > 1.0).any(dim=-1)
         
         # reward_feet_air_time = torch.sum(torch.exp(-torch.square(self.feet_air_time - target_air_time) / (0.1)) * first_contact, dim=1)
         # foot_slip_penalty = torch.sum(torch.square(foot_velocities[:, :, :2]) * contact.unsqueeze(-1), dim=[1, 2])
@@ -441,16 +414,16 @@ class WalkENV(gym.Env):
             # raibert_penalty.shape
         # )
 
-        self.feet_air_time += self.dt       
-        self.feet_air_time[contact] = 0.0
+        # self.feet_air_time += self.dt       
+        # self.feet_air_time[contact] = 0.0
 
         reward_for_tracking_vx = + 3.0 * reward_for_tracking_vx
         reward_for_tracking_wz = + 2 * reward_for_tracking_wz
-        vy_penalty = - 0.5 * torch.square(vy)
-        height_penalty = - 30.0 * height_penalty
+        vy_penalty = - 0.5 * torch.square(self.vy)
+        height_penalty = - 10.0 * height_penalty
         pitch_penalty = - 5.0 * pitch_penalty
-        yaw_penalty = - 2.0 * yaw_penalty
-        hip_deviation_penalty = - 2 * hip_deviation_penalty
+        # yaw_penalty = - 2.0 * yaw_penalty
+        hip_deviation_penalty = - 4.0 * hip_deviation_penalty
         lin_vel_z_penalty = - 0.02 * lin_vel_z_penalty
         roll_pitch_velocity_penalty = - 0.001 * roll_pitch_velocity_penalty
         action_rate_penalty = - 0.01 * action_rate_penalty
@@ -458,7 +431,7 @@ class WalkENV(gym.Env):
         reward_similar_to_default = - 0.01 * reward_similar_to_default
         torque_penalty = - 0.001 * torque_penalty
         joint_vel_penalty = - 0.005 * joint_vel_penalty
-        out_of_range_penalty = - 0.5 * out_of_range_penalty
+        out_of_range_penalty = - 1.0 * out_of_range_penalty
         collision_penalty = - 1.0 * collision_penalty
 
         # reward_feet_air_time = + 1.0 * reward_feet_air_time
@@ -467,7 +440,7 @@ class WalkENV(gym.Env):
         # stance_phase_penalty = -0.5 * stance_phase_penalty
         # foot_swing_height_penalty = - 5.0 * foot_swing_height_penalty
         # raibert_penalty = -0.5 * raibert_penalty
-        reward_survival = torch.ones_like(base_height) * 1.0
+        reward_survival = torch.ones_like(self.base_height) * 1.0
 
         reward = (
             reward_for_tracking_vx
@@ -475,7 +448,7 @@ class WalkENV(gym.Env):
             + vy_penalty
             + height_penalty
             + pitch_penalty
-            + yaw_penalty
+            # + yaw_penalty
             + hip_deviation_penalty
             + lin_vel_z_penalty
             + roll_pitch_velocity_penalty
@@ -485,7 +458,7 @@ class WalkENV(gym.Env):
             + torque_penalty
             + joint_vel_penalty
             + out_of_range_penalty
-            + collision_penalty
+            # + collision_penalty
             # + reward_feet_air_time
             # + foot_slip_penalty
             # + swing_phase_penalty
@@ -496,8 +469,7 @@ class WalkENV(gym.Env):
         )
 
 
-        euler = self._quat_to_euler(base_quat)
-        terminated = ((torch.abs(euler[:, 0]) > 0.26) | (torch.abs(euler[:, 1]) > 0.26) | (base_height < 0.18))
+        terminated = ((torch.abs(self.euler[:, 0]) > 0.26) | (torch.abs(self.euler[:, 1]) > 0.26) | (self.base_height < 0.18))
         # out_of_trajectory = (base_x_pos < 0.5) | (base_x_pos > self.terrain_length-0.5) | (base_y_pos < 0.5) | (base_y_pos > self.terrain_breadth - 0.5)
         out_of_trajectory = False
         reward[terminated] -= 500
@@ -508,7 +480,7 @@ class WalkENV(gym.Env):
         self.episode_sums["vy_penalty"] += vy_penalty
         self.episode_sums["height_penalty"] += height_penalty
         self.episode_sums["pitch_penalty"] += pitch_penalty
-        self.episode_sums["yaw_penalty"] += yaw_penalty
+        # self.episode_sums["yaw_penalty"] += yaw_penalty
         self.episode_sums["hip_deviation_penalty"] += hip_deviation_penalty
         self.episode_sums["lin_vel_z_penalty"] += lin_vel_z_penalty
         self.episode_sums["roll_pitch_velocity_penalty"] += roll_pitch_velocity_penalty
@@ -532,6 +504,7 @@ class WalkENV(gym.Env):
         return reward, terminated, out_of_trajectory
 
     def get_observations(self):
+        self._get_all_values_at_once()
         obs_buf = self._get_obs()
         return TensorDict(
         {
@@ -544,19 +517,12 @@ class WalkENV(gym.Env):
 
     def _get_obs(self):
         
-        self.base_pos = self.robot.get_link("base").get_pos()
-        # self.linear_acc, self.base_ang_vel = self._get_imu_values()
-        self.base_quat = self.robot.get_link("base").get_quat()
-        self.base_lin_vel_body = self.__get_linear_velocity()
-        projected_gravity = self._calculate_projected_acceleration()
-        dof_pos = self.robot.get_dofs_position(dofs_idx_local=self.joints_local_idx) - self.__initial_positions
-        dof_vel = self.robot.get_dofs_velocity(dofs_idx_local=self.joints_local_idx)
 
-        current_time = self.episode_length_buf * self.dt
-        leg_phases = (current_time.unsqueeze(1) * self.step_freq + self.trot_offsets) % 1.0
-        phase_angles = leg_phases * 2 * torch.pi
-        clock_obs = torch.cat([torch.sin(phase_angles), torch.cos(phase_angles)], dim=1)
-        
+        # current_time = self.episode_length_buf * self.dt
+        # leg_phases = (current_time.unsqueeze(1) * self.step_freq + self.trot_offsets) % 1.0
+        # phase_angles = leg_phases * 2 * torch.pi
+        # clock_obs = torch.cat([torch.sin(phase_angles), torch.cos(phase_angles)], dim=1)
+        dof_pos = self.dof_pos - self.__initial_positions
         scaled_commands = torch.stack([
             self.custom_commands[:, 0] * 1.0,   
             self.custom_commands[:, 1] * 1.0,
@@ -569,20 +535,14 @@ class WalkENV(gym.Env):
             "policy": torch.cat([
             self.base_lin_vel_body,                        # 3 
             self.base_ang_vel * 0.5,                       # 3
-            projected_gravity ,                            # 3
-            self.ypr[:, 2].unsqueeze(1),                                # 1
+            self.projected_gravity ,                            # 3
+            self.euler[:, 2].unsqueeze(1),                                # 1
             dof_pos,                                       # 12
-            dof_vel * 0.05,                                # 12
+            self.dof_vel * 0.05,                                # 12
             self.actions,                                  # 12
-            scaled_commands,                               # 3
+            scaled_commands,                               # 2
             ], dim=1),
         }, batch_size=self.num_envs, device=self.device)
-
-        # print(current_obs["image"].shape)
-
-        # Add history of observations
-        # self.obs_histoy[:, :-self.num_obs] = self.obs_histoy[:, self.num_obs:].clone()
-        # self.obs_histoy[:, -self.num_obs:] = current_obs
 
         return current_obs
 
@@ -614,7 +574,6 @@ class WalkENV(gym.Env):
         self.last_actions[envs_idx] = 0
         self.second_last_actions[envs_idx] = 0
         self.last_dof_vel[envs_idx] = 0
-        self.obs_histoy[envs_idx] = 0
 
         x = torch.randint(low=10, high=self.terrain_length-10, size=(len(envs_idx), ))
         # y = torch.randint(low=20, high=self.terrain_breadth-20, size=(len(envs_idx), ))
@@ -649,32 +608,35 @@ class WalkENV(gym.Env):
 
 
     def reset(self):
+        print("Resetting Environment")
         all_idx = torch.arange(self.num_envs, device=self.device)
         self._reset_idx(all_idx)
         self.scene.reset()
+        self._get_all_values_at_once()
         self.obs_buf = self._get_obs()
+        print("Environment Reset")
         return self.obs_buf
 
     def update_commands(self, idx):
     
         self.custom_commands[idx, 0] = torch.rand(len(idx), device=self.device) * (self.vx_range[1] - self.vx_range[0]) + self.vx_range[0]
         self.custom_commands[idx, 1] = torch.rand(len(idx), device=self.device) * (self.wz_range[1] - self.wz_range[0]) + self.wz_range[0]
-        self.custom_commands[idx[torch.rand(len(idx), device=self.device) < 0.15]] = 0.0
+        self.custom_commands[idx[torch.rand(len(idx), device=self.device) < 0.25]] = 0.0
 
     def step(self, action):
 
-        self.time_step += 1
         self.actions = action.clone()
 
         target_dof_pos = self.__initial_positions + action * self.action_scale
         self.robot.control_dofs_position(target_dof_pos, dofs_idx_local = self.joints_local_idx)
         self.scene.step()
-        _, self.base_ang_vel = self._get_imu_values()
-        self.ypr = self._get_ypr()
+
+        self._get_all_values_at_once()
         reward, terminated, out_of_trajectory = self._calculate_reward()
 
         self.episode_length_buf += 1
         time_out = self.episode_length_buf >= self.max_episode_length
+        
         self.extras["time_outs"] = time_out
         dones = terminated | time_out | out_of_trajectory
 
@@ -683,7 +645,8 @@ class WalkENV(gym.Env):
         self.second_last_actions = self.last_actions.clone()
         self.last_actions = self.actions.clone()
 
-        self.previous_joint_velocity = self.robot.get_dofs_velocity(dofs_idx_local = self.joints_local_idx)
+        # self.previous_joint_velocity = self.robot.get_dofs_velocity(dofs_idx_local = self.joints_local_idx)
+        self.previous_joint_velocity = self.dof_vel.clone()
 
         reset_ids = torch.nonzero(dones).flatten()
         if len(reset_ids) > 0:
@@ -691,14 +654,11 @@ class WalkENV(gym.Env):
 
         observation = self._get_obs()
         
-        # lidar_data = self.lidar.read()
-
         info = {
-            "final_obs":   final_obs.detach().cpu().numpy(),
+            "final_obs":   final_obs["policy"].detach().cpu().numpy(),
             "terminated":  terminated.detach().cpu().numpy(),
-            # "lidar_points": lidar_data[0][0],          # (N, 3) tensor, env 0
-            "robot_pos":    self.robot.get_link("base").get_pos()[0],
-            "robot_quat":   self.robot.get_link("base").get_quat()[0],
+            "robot_pos":    self.base_pos[0],
+            "robot_quat":   self.base_quat[0],
         }
 
         # self.update_cam()
@@ -706,16 +666,3 @@ class WalkENV(gym.Env):
 
         return observation, reward, dones, self.extras   
 
-    def _quat_to_euler(self, q):
-        w, x, y, z = q[..., 0], q[..., 1], q[..., 2], q[..., 3]
-        sinr_cosp = 2 * (w * x + y * z)
-        cosr_cosp = 1 - 2 * (x * x + y * y)
-        roll = torch.atan2(sinr_cosp, cosr_cosp)
-        sinp = 2 * (w * y - z * x)
-        pitch = torch.where(torch.abs(sinp) >= 1,
-                            torch.sign(sinp) * torch.pi / 2,
-                            torch.asin(sinp))
-        siny_cosp = 2 * (w * z + x * y)
-        cosy_cosp = 1 - 2 * (y * y + z * z)
-        yaw = torch.atan2(siny_cosp, cosy_cosp)
-        return torch.stack([roll, pitch, yaw], dim=-1)
