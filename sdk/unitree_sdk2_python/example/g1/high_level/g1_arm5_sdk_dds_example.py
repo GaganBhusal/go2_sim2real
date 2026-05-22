@@ -1,15 +1,15 @@
 import time
 import sys
 
-from sdk.unitree_sdk2_python.unitree_sdk2py.core.channel import ChannelPublisher, ChannelFactoryInitialize
-from sdk.unitree_sdk2_python.unitree_sdk2py.core.channel import ChannelSubscriber, ChannelFactoryInitialize
-from sdk.unitree_sdk2_python.unitree_sdk2py.idl.default import unitree_hg_msg_dds__LowCmd_
-from sdk.unitree_sdk2_python.unitree_sdk2py.idl.default import unitree_hg_msg_dds__LowState_
-from sdk.unitree_sdk2_python.unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowCmd_
-from sdk.unitree_sdk2_python.unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowState_
-from sdk.unitree_sdk2_python.unitree_sdk2py.utils.crc import CRC
-from sdk.unitree_sdk2_python.unitree_sdk2py.utils.thread import RecurrentThread
-from sdk.unitree_sdk2_python.unitree_sdk2py.comm.motion_switcher.motion_switcher_client import MotionSwitcherClient
+from unitree_sdk2py.core.channel import ChannelPublisher, ChannelFactoryInitialize
+from unitree_sdk2py.core.channel import ChannelSubscriber, ChannelFactoryInitialize
+from unitree_sdk2py.idl.default import unitree_hg_msg_dds__LowCmd_
+from unitree_sdk2py.idl.default import unitree_hg_msg_dds__LowState_
+from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowCmd_
+from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowState_
+from unitree_sdk2py.utils.crc import CRC
+from unitree_sdk2py.utils.thread import RecurrentThread
+from unitree_sdk2py.comm.motion_switcher.motion_switcher_client import MotionSwitcherClient
 
 import numpy as np
 

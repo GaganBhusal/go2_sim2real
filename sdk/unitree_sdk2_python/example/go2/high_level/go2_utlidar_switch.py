@@ -1,10 +1,10 @@
 import time
 import sys
 
-from sdk.unitree_sdk2_python.unitree_sdk2py.core.channel import ChannelPublisher, ChannelFactoryInitialize
-from sdk.unitree_sdk2_python.unitree_sdk2py.core.channel import ChannelSubscriber, ChannelFactoryInitialize
-from sdk.unitree_sdk2_python.unitree_sdk2py.idl.std_msgs.msg.dds_ import String_
-from sdk.unitree_sdk2_python.unitree_sdk2py.idl.default import std_msgs_msg_dds__String_
+from unitree_sdk2py.core.channel import ChannelPublisher, ChannelFactoryInitialize
+from unitree_sdk2py.core.channel import ChannelSubscriber, ChannelFactoryInitialize
+from unitree_sdk2py.idl.std_msgs.msg.dds_ import String_
+from unitree_sdk2py.idl.default import std_msgs_msg_dds__String_
 
 class Custom:
     def __init__(self):

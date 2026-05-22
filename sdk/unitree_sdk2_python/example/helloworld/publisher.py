@@ -1,7 +1,7 @@
 import time
 
-from sdk.unitree_sdk2_python.unitree_sdk2py.core.channel import ChannelPublisher, ChannelFactoryInitialize
-from sdk.unitree_sdk2_python.example.helloworld.user_data import *
+from unitree_sdk2py.core.channel import ChannelPublisher, ChannelFactoryInitialize
+from user_data import *
 
 
 if __name__ == "__main__":

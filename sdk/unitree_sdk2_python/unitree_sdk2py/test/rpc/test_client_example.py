@@ -1,10 +1,10 @@
 import time
 import json
 
-from sdk.unitree_sdk2_python.unitree_sdk2py.core.channel import ChannelFactoryInitialize
-from sdk.unitree_sdk2_python.unitree_sdk2py.rpc.client import Client
+from unitree_sdk2py.core.channel import ChannelFactoryInitialize
+from unitree_sdk2py.rpc.client import Client
 
-from sdk.unitree_sdk2_python.unitree_sdk2py.test.rpc.test_api import *
+from test_api import *
 
 """
 " class TestClient

@@ -3,8 +3,8 @@ import time
 from dataclasses import dataclass
 from typing import Optional
 
-from sdk.unitree_sdk2_python.unitree_sdk2py.core.channel import ChannelFactoryInitialize
-from sdk.unitree_sdk2_python.unitree_sdk2py.a2.sport.sport_client import SportClient
+from unitree_sdk2py.core.channel import ChannelFactoryInitialize
+from unitree_sdk2py.a2.sport.sport_client import SportClient
 
 
 @dataclass

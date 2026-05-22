@@ -1,8 +1,8 @@
 import time
 import os
 
-from sdk.unitree_sdk2_python.unitree_sdk2py.core.channel import ChannelFactoryInitialize
-from sdk.unitree_sdk2_python.unitree_sdk2py.go2.video.video_client import VideoClient
+from unitree_sdk2py.core.channel import ChannelFactoryInitialize
+from unitree_sdk2py.go2.video.video_client import VideoClient
 
 if __name__ == "__main__":
     ChannelFactoryInitialize(0, "enp2s0")

@@ -5,5 +5,5 @@
 
 """
 
-from ......scripts.sdk.unitree_sdk2_python.unitree_sdk2py.idl.sensor_msgs import msg
+from . import msg
 __all__ = ["msg", ]

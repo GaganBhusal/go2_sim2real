@@ -1,9 +1,9 @@
 import sys
 from pathlib import Path
 
-from sdk.unitree_sdk2_python.unitree_sdk2py.core.channel import ChannelFactoryInitialize
-from sdk.unitree_sdk2_python.unitree_sdk2py.a2.audio.audio_client import AudioClient
-from sdk.unitree_sdk2_python.example.a2.audio.wav import read_wav, play_pcm_stream
+from unitree_sdk2py.core.channel import ChannelFactoryInitialize
+from unitree_sdk2py.a2.audio.audio_client import AudioClient
+from wav import read_wav, play_pcm_stream
 
 
 def main():

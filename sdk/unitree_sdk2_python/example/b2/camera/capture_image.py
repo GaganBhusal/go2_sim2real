@@ -2,9 +2,9 @@ import time
 import os
 import sys
 
-from sdk.unitree_sdk2_python.unitree_sdk2py.core.channel import ChannelFactoryInitialize
-from sdk.unitree_sdk2_python.unitree_sdk2py.b2.front_video.front_video_client import FrontVideoClient
-from sdk.unitree_sdk2_python.unitree_sdk2py.b2.back_video.back_video_client import BackVideoClient
+from unitree_sdk2py.core.channel import ChannelFactoryInitialize
+from unitree_sdk2py.b2.front_video.front_video_client import FrontVideoClient
+from unitree_sdk2py.b2.back_video.back_video_client import BackVideoClient
 
 if __name__ == "__main__":
     if len(sys.argv) > 1:

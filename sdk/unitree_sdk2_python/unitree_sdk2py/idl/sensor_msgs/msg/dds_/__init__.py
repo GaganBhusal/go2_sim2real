@@ -5,7 +5,7 @@
 
 """
 
-from ........scripts.sdk.unitree_sdk2_python.unitree_sdk2py.idl.sensor_msgs.msg.dds_ import PointField_Constants
+from . import PointField_Constants
 from ._PointCloud2_ import PointCloud2_
 from ._PointField_ import PointField_
 __all__ = ["PointField_Constants", "PointCloud2_", "PointField_", ]
