@@ -1,7 +1,7 @@
 import sys
-from unitree_sdk2py.core.channel import ChannelFactoryInitialize
-from unitree_sdk2py.g1.audio.g1_audio_client import AudioClient
-from wav import read_wav, play_pcm_stream
+from sdk.unitree_sdk2_python.unitree_sdk2py.core.channel import ChannelFactoryInitialize
+from sdk.unitree_sdk2_python.unitree_sdk2py.g1.audio.g1_audio_client import AudioClient
+from sdk.unitree_sdk2_python.example.g1.audio.wav import read_wav, play_pcm_stream
 
 def main():
     if len(sys.argv) < 3:

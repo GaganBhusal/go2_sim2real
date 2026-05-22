@@ -3,11 +3,11 @@ import time
 
 import numpy as np
 
-from unitree_sdk2py.core.channel import ChannelFactoryInitialize, ChannelPublisher, ChannelSubscriber
-from unitree_sdk2py.idl.default import unitree_hg_msg_dds__LowCmd_
-from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowCmd_, LowState_
-from unitree_sdk2py.utils.crc import CRC
-from unitree_sdk2py.utils.thread import RecurrentThread
+from sdk.unitree_sdk2_python.unitree_sdk2py.core.channel import ChannelFactoryInitialize, ChannelPublisher, ChannelSubscriber
+from sdk.unitree_sdk2_python.unitree_sdk2py.idl.default import unitree_hg_msg_dds__LowCmd_
+from sdk.unitree_sdk2_python.unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowCmd_, LowState_
+from sdk.unitree_sdk2_python.unitree_sdk2py.utils.crc import CRC
+from sdk.unitree_sdk2_python.unitree_sdk2py.utils.thread import RecurrentThread
 
 
 SMALL_SHOULDER_ROLL = np.deg2rad(20.0)

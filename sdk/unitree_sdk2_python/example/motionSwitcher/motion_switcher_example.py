@@ -1,8 +1,8 @@
 import time
 import sys
 
-from unitree_sdk2py.core.channel import ChannelFactoryInitialize
-from unitree_sdk2py.comm.motion_switcher.motion_switcher_client import MotionSwitcherClient
+from sdk.unitree_sdk2_python.unitree_sdk2py.core.channel import ChannelFactoryInitialize
+from sdk.unitree_sdk2_python.unitree_sdk2py.comm.motion_switcher.motion_switcher_client import MotionSwitcherClient
 
 
 class Custom:

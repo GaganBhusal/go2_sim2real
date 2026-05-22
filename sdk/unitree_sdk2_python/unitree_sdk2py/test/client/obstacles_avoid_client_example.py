@@ -1,8 +1,8 @@
 import time
 import os
 
-from unitree_sdk2py.core.channel import ChannelFactoryInitialize
-from unitree_sdk2py.go2.obstacles_avoid.obstacles_avoid_client import ObstaclesAvoidClient
+from sdk.unitree_sdk2_python.unitree_sdk2py.core.channel import ChannelFactoryInitialize
+from sdk.unitree_sdk2_python.unitree_sdk2py.go2.obstacles_avoid.obstacles_avoid_client import ObstaclesAvoidClient
 
 if __name__ == "__main__":
     ChannelFactoryInitialize(0, "enp3s0")

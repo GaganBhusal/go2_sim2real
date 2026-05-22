@@ -5,5 +5,5 @@
 
 """
 
-from . import dds_
+from .........scripts.sdk.unitree_sdk2_python.build.lib.unitree_sdk2py.idl.unitree_go.msg import dds_
 __all__ = ["dds_", ]

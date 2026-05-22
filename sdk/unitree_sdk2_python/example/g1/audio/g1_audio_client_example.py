@@ -1,8 +1,8 @@
 import time
 import sys
-from unitree_sdk2py.core.channel import ChannelSubscriber, ChannelFactoryInitialize
-from unitree_sdk2py.g1.audio.g1_audio_client import AudioClient
-from unitree_sdk2py.g1.loco.g1_loco_client import LocoClient
+from sdk.unitree_sdk2_python.unitree_sdk2py.core.channel import ChannelSubscriber, ChannelFactoryInitialize
+from sdk.unitree_sdk2_python.unitree_sdk2py.g1.audio.g1_audio_client import AudioClient
+from sdk.unitree_sdk2_python.unitree_sdk2py.g1.loco.g1_loco_client import LocoClient
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
