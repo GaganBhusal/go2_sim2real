@@ -9,10 +9,13 @@ class WalkEnvCfg:
 
     max_episode_length: int = 1000
 
-    height_range: float = 0.31
-    vx_range: tuple = (0.0, 1.0)
+    # For commands
+    vx_range: tuple = (-1.0, 1.0)
+    vy_range: tuple = (-1.0, 1.0)
     wz_range: tuple = (-0.6, 0.6)
+    height_range: float = (0.22, 0.32)
     pitch_range: tuple = (-0.15, 0.15)
+
     action_scale: float = 0.5
     dt: float = 0.02
     kp: float = 40.0
