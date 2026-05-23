@@ -53,7 +53,9 @@ class DomainRandomization:
         self.robot.set_dofs_kv(kv_values, self.joints_local_idx, envs_idx=env_idx)
 
     # Random force push applied to the base link
-    def _random_force_push(self, env_idx=None):
+    def _random_force_push(self):
+        all_envs = torch.arange(self.n_envs, device=self.device)
+        env_idx = all_envs[torch.rand(len(self.n_envs), device=self.device) < 0.005]
         if env_idx is None:
             env_idx = torch.arange(self.n_envs, device=self.device)
         total_envs = len(env_idx)
@@ -69,10 +71,8 @@ class DomainRandomization:
         )
 
     # Add action latency by maintaining a buffer of past actions and returning the action from a few steps ago
-    def _add_action_latency(self, actions, latency_steps=2):
-        if latency_steps <= 0:
-            return actions
-        
+    def _add_action_latency(self, actions):
+
         self.action_buffer = torch.roll(self.action_buffer, shifts=-1, dims=1)
         self.action_buffer[:, -1] = actions
         
