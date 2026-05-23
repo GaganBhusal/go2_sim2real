@@ -16,6 +16,8 @@ def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument("-e", "--exp_name", type=str, default="go2_train_first")
+    parser.add_argument("-r", "--resume", action="store_true", help="Whether to resume training from the last checkpoint")
+    parser.add_argument("--ckpt", type=int, default=None, help="Checkpoint number from where to resume training.")
     args = parser.parse_args()
 
     exp_name = args.exp_name
@@ -28,27 +30,24 @@ def main():
 
     log_dir = f"logs/{exp_name}"
 
-    # To start the training fresh again, removing the old logs.
-
-    # if os.path.exists(log_dir):
-    #     shutil.rmtree(log_dir)
-
-
     os.makedirs(log_dir, exist_ok=True)
     with open("configs/train_params.yaml", "r") as f:
         train_cfg = yaml.safe_load(f)
     pickle.dump(train_cfg, open(f"{log_dir}/cfgs.pkl", "wb"))
 
     runner = OnPolicyRunner(env, train_cfg["runner"], log_dir, device=gs.device)
-
-
     # To resume the training from a checkpoint.
-    
-    # resume_path = "logs/go2_rsl/model_2000.pt"
-    # print(f"Loading model from: {resume_path}")
-    # runner.load(resume_path)
 
-    runner.learn(num_learning_iterations=max_iterations, init_at_random_ep_len=False)
+    if args.resume:
+        if args.ckpt:
+            resume_path = os.path.join(log_dir, f"model_{args.ckpt}.pt")
+            print(f"Resuming training from checkpoint: {resume_path}")
+            runner.load(resume_path)
+        else:
+            print(f"Try Again!!\nResume path provided but not checkpoint number")
+    else:
+        print(f"Starting training from scratch. No resume path provided.")
+    runner.learn(num_learning_iterations=max_iterations, init_at_random_ep_len=True)
 
 if __name__ == "__main__":
     main()
