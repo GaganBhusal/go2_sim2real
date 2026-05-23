@@ -46,8 +46,8 @@ class DomainRandomization:
         )
 
         # Kp and Kv
-        kp_values = torch.randint(low=30, high=60, size=(total_envs, 12), device=self.device).float()
-        kv_values = torch.rand((total_envs, 12), device=self.device) * 1.5 + 0.5
+        kp_values = torch.randint(low=30, high=60, size=(12, ), device=self.device).float()
+        kv_values = torch.rand((12, ), device=self.device) * 1.5 + 0.5
         
         self.robot.set_dofs_kp(kp_values, self.joints_local_idx, envs_idx=env_idx)
         self.robot.set_dofs_kv(kv_values, self.joints_local_idx, envs_idx=env_idx)
@@ -55,7 +55,7 @@ class DomainRandomization:
     # Random force push applied to the base link
     def _random_force_push(self):
         all_envs = torch.arange(self.n_envs, device=self.device)
-        env_idx = all_envs[torch.rand(len(self.n_envs), device=self.device) < 0.005]
+        env_idx = all_envs[torch.rand(self.n_envs, device=self.device) < 0.005]
         if env_idx is None:
             env_idx = torch.arange(self.n_envs, device=self.device)
         total_envs = len(env_idx)
