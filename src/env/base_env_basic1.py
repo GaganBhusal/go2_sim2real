@@ -13,21 +13,23 @@ from src.utils.math_utils import _quat_to_euler, _calculate_projected_accelerati
 
 class WalkENV(gym.Env):
 
-    def __init__(self, config, render = False, backend = gs.gpu, num_envs = 100, device="cuda", plane = True, t_x = 20, t_y = 50, number_of_lanes=1, number_of_rows=10):
+    def __init__(self, config, render = False, backend = gs.gpu, num_envs = 100, device="cuda", plane = True, t_x = 20, t_y = 50, number_of_lanes=1, number_of_rows=10, domain_randomize = True):
         super().__init__()
 
         self.config = config
         self.plane = plane
         self.num_envs = self.config.num_envs
         self.device = self.config.device
+        self.max_episode_length = self.config.max_episode_length
         self.episode_length_buf = torch.zeros(self.config.num_envs, dtype=torch.int, device=self.config.device)
 
         self._setup_scene(render)
         self._get_internal_info()
         self._setup_obs_and_action_spaces()
 
-        # self.domainrandomizer = DomainRandomization(self.robot, self.num_envs, self.joints_local_idx)
-
+        self.randomize = domain_randomize
+        if self.randomize:
+            self.domainrandomizer = DomainRandomization(self.robot, self.config.num_envs, self.joints_local_idx, device=self.config.device)
 
 
         self.episode_sums = {
@@ -94,7 +96,6 @@ class WalkENV(gym.Env):
 
         self.scene.build(n_envs = self.config.num_envs, env_spacing = (5.0, 5.0))
 
-
     def _setup_obs_and_action_spaces(self):
         
         custom_commands_list = ["Velocity forward", "Angular Velocity XY Plane"]
@@ -156,16 +157,16 @@ class WalkENV(gym.Env):
 
     def _get_all_values_at_once(self):
         self.base_pos = self.robot.get_link("base").get_pos()
-        _, self.base_ang_vel = self._get_imu_values()
-        self.base_quat = self.robot.get_link("base").get_quat()
-        self.euler = _quat_to_euler(self.base_quat)
-        self.vel_body = self.robot.get_link("base").get_vel()
+        _, self.base_ang_vel = self._get_imu_values()   #Read
+        self.base_quat = self.robot.get_link("base").get_quat()  #Read
+        self.euler = _quat_to_euler(self.base_quat)  #Read
+        self.vel_body = self.robot.get_link("base").get_vel() 
         self.base_lin_vel_body = self.__get_linear_velocity()
-        self.projected_gravity = _calculate_projected_acceleration(self.base_quat)
-        self.dof_pos = self.robot.get_dofs_position(dofs_idx_local=self.joints_local_idx)
-        self.dof_vel = self.robot.get_dofs_velocity(dofs_idx_local=self.joints_local_idx)
+        self.projected_gravity = _calculate_projected_acceleration(self.base_quat)  #Read
+        self.dof_pos = self.robot.get_dofs_position(dofs_idx_local=self.joints_local_idx)  #Read
+        self.dof_vel = self.robot.get_dofs_velocity(dofs_idx_local=self.joints_local_idx)  #Read
         self.torques = self.robot.get_dofs_control_force(dofs_idx_local=self.joints_local_idx)
-        self.contact_forces = self.robot.get_links_net_contact_force()
+        self.contact_forces = self.robot.get_links_net_contact_force() #Read
         self.collision_forces = self._get_collision_forces()
 
         self.vx = self.base_lin_vel_body[:, 0]
@@ -305,15 +306,31 @@ class WalkENV(gym.Env):
             self.custom_commands[:, 1] * 1.0,
         ], dim=1) #scal
 
+        # Adding noise here directly
+        if self.randomize:
+            base_lin_vel_body = self.base_lin_vel_body + torch.randn_like(self.base_lin_vel_body) * 0.1
+            base_ang_vel = self.base_ang_vel + torch.randn_like(self.base_ang_vel) * 0.05
+            projected_gravity = self.projected_gravity + torch.randn_like(self.projected_gravity) * 0.02
+            euler = self.euler + torch.randn_like(self.euler) * 0.05
+            noisy_dof_pos = dof_pos + torch.randn_like(dof_pos) * 0.01
+            dof_vel = self.dof_vel + torch.randn_like(self.dof_vel) * 0.5
+
+        else:
+            base_lin_vel_body = self.base_lin_vel_body
+            base_ang_vel = self.base_ang_vel
+            projected_gravity = self.projected_gravity
+            euler = self.euler
+            noisy_dof_pos = dof_pos
+            dof_vel = self.dof_vel
 
         current_obs = TensorDict({          
             "policy": torch.cat([
-            self.base_lin_vel_body,                        # 3 
-            self.base_ang_vel * 0.5,                       # 3
-            self.projected_gravity ,                            # 3
-            self.euler[:, 2].unsqueeze(1),                                # 1
-            dof_pos,                                       # 12
-            self.dof_vel * 0.05,                                # 12
+            base_lin_vel_body,                        # 3 
+            base_ang_vel * 0.5,                       # 3
+            projected_gravity ,                            # 3
+            euler[:, 2].unsqueeze(1),                                # 1
+            noisy_dof_pos,                                       # 12
+            dof_vel * 0.05,                                # 12
             self.actions,                                  # 12
             scaled_commands,                               # 2
             ], dim=1),
@@ -350,19 +367,15 @@ class WalkENV(gym.Env):
         self.second_last_actions[envs_idx] = 0
         self.last_dof_vel[envs_idx] = 0
 
-        # y = torch.randint(low=20, high=self.terrain_breadth-20, size=(len(envs_idx), ))
-        x = 0
-        y = 0
-        z = 0.4
-
-
         base_quat = torch.tensor([1, 0, 0, 0], device=self.config.device)
         self.robot.set_quat(quat=base_quat, envs_idx=envs_idx)
-        base_pos = torch.tensor([x, y, z], device=self.config.device)
+        base_pos = torch.tensor([0, 0, 0.4], device=self.config.device)
         self.robot.set_pos(base_pos, envs_idx=envs_idx)
-        # self.domainrandomizer.randomize(envs_idx)
-
+        if self.randomize:
+            self.domainrandomizer.randomize(envs_idx)
+            self.domainrandomizer.action_buffer[envs_idx] = 0
         self.update_commands(envs_idx)
+
    
 
     def reset(self):
@@ -384,12 +397,18 @@ class WalkENV(gym.Env):
     def step(self, action):
 
         self.actions = action.clone()
+        if self.randomize:
+            action = self.domainrandomizer._add_action_latency(self.actions)
 
         target_dof_pos = self.config.initial_positions + action * self.config.action_scale
         self.robot.control_dofs_position(target_dof_pos, dofs_idx_local = self.joints_local_idx)
         self.scene.step()
 
         self._get_all_values_at_once()
+
+        if self.randomize:
+            self.domainrandomizer._random_force_push()
+
         reward, terminated, out_of_trajectory = self._calculate_reward()
 
         self.episode_length_buf += 1
