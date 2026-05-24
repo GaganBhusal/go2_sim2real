@@ -70,7 +70,7 @@ class WalkENV(gym.Env):
             plane = self.scene.add_entity(gs.morphs.Plane())
         
         self.robot = self.scene.add_entity(
-            gs.morphs.URDF(file='//home/yayy/My/Codeeeeee/Simulators/Genesis/genesis-world/genesis/assets/urdf/go2/urdf/go2.urdf'),
+            gs.morphs.URDF(file='robotfiles/go2.urdf'),
         )
 
         self.imu = self.scene.add_sensor(
@@ -355,6 +355,7 @@ class WalkENV(gym.Env):
             dofs_idx_local=self.joints_local_idx,
             envs_idx=envs_idx
         )
+
         self.robot.set_dofs_velocity(
             torch.zeros((len(envs_idx), 12), device=self.config.device),
             dofs_idx_local=self.joints_local_idx,
@@ -367,9 +368,10 @@ class WalkENV(gym.Env):
         self.second_last_actions[envs_idx] = 0
         self.last_dof_vel[envs_idx] = 0
 
+        base_z = torch.rand(1) * 0.06 + 0.30        
         base_quat = torch.tensor([1, 0, 0, 0], device=self.config.device)
         self.robot.set_quat(quat=base_quat, envs_idx=envs_idx)
-        base_pos = torch.tensor([0, 0, 0.4], device=self.config.device)
+        base_pos = torch.tensor([0, 0, base_z], device=self.config.device)
         self.robot.set_pos(base_pos, envs_idx=envs_idx)
         if self.randomize:
             self.domainrandomizer.randomize(envs_idx)
