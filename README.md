@@ -71,7 +71,7 @@
 - [Setup and Usage](#setup-and-usage)
   - [1. Environment Setup](#1-environment-setup)
   - [2. Simulation Training](#2-simulation-training)
-  - [3. Simulation Playback & Interactive Control](#3-simulation-playback--interactive-control)
+  - [3. Pretrained Policy Playback (go2_walk_seven / model_10000.pt)](#3-pretrained-policy-playback-go2_walk_seven--model_10000pt)
   - [4. Real Hardware Deployment](#4-real-hardware-deployment)
 - [Acknowledgements & References](#acknowledgements--references)
 - [License](#license)
@@ -80,24 +80,13 @@
 
 ## Overview
 
-This repository presents an end-to-end reinforcement learning framework for dynamic, blind velocity-tracking locomotion on the **Unitree Go2** quadruped robot, transferring **zero-shot** from simulation to physical hardware.
-
-```
-       SIMULATION (Genesis GPU)                      LEARNING (rsl_rl)                     HARDWARE (Unitree Go2)
- ┌───────────────────────────────────┐    ┌───────────────────────────────────┐    ┌───────────────────────────────────┐
- │ • 4,096 Vectorized Environments   │    │ • Asymmetric Actor-Critic (PPO)   │    │ • Zero-Shot Hardware Transfer     │
- │ • 500 Hz Physics (10 Substeps)    │───►│ • Online Observation Normalizer   │───►│ • Low-Level CycloneDDS (LowCmd)   │
- │ • Rigorous Domain Randomization   │    │ • Cyclical Trot Clock Generator   │    │ • Kp=40.0, Kd=4.9 (Damped QDD)    │
- │ • Mass, Friction, Gain Sweeps     │    │ • 22 Balanced Reward Objectives   │    │ • Auto Stand-Up & E-Stop Safety   │
- └───────────────────────────────────┘    └───────────────────────────────────┘    └───────────────────────────────────┘
-```
+End-to-end reinforcement learning framework for dynamic velocity-tracking locomotion on the **Unitree Go2** quadruped robot, transferred **zero-shot** from simulation to physical hardware.
 
 ### Key Highlights
-- **High-Throughput Simulation in Genesis:** Vectorized GPU rigid-body dynamics simulating 4,096 parallel environments with 500 Hz physics substeps ($dt = 0.002\,\text{s}$, 10 substeps per control step), closely matching real actuator integration.
-- **Asymmetric Actor-Critic with PPO:** Trained with [`rsl_rl`](https://github.com/leggedrobotics/rsl_rl) using an asymmetric observation scheme: a 47-dimensional proprioceptive actor policy for onboard deployment and a 55-dimensional privileged critic network leveraging ground-truth physics states.
-- **Aggressive Domain Randomization:** Bridges the sim-to-real gap across base mass $[-1.0, +2.5]\,\text{kg}$, CoM offset $\pm 4\,\text{cm}$, friction $[0.05, 3.0]$, actuator gains ($K_p \in [20, 80]$, $K_d \in [0.2, 5.0]$), joint damping, dry friction loss, rotor armature, motor torque scaling, external pushes up to $150\,\text{N}$, and sensor noise.
-- **Actuator Dynamics & Zero-Shot Transfer:** Quasi-direct drive (QDD) actuators with low gear reduction ($\sim 6.33:1$) transmit high touchdown shock waves back into the motors. Deploying with tuned electronic damping ($K_p = 40.0, K_d = 4.9$) eliminates contact chatter without needing laggy action EMA filters that degrade closed-loop stability.
-- **Embedded Hardware Safety:** Direct communication via Unitree's low-level DDS API (`rt/lowcmd` and `rt/lowstate`) at 500 Hz. Features automated 2-second stand-up interpolation, explicit kinematic remapping (`SIM2REAL` / `REAL2SIM`), and real-time gravity projection fall detection ($g_z > -0.5 \implies \text{tilt} > 60^\circ$) with safe soft-damping shutdown.
+- **Simulation:** Vectorized GPU simulation in [Genesis](https://genesis-world.org/) with 4,096 environments at 500 Hz physics (10 substeps per 50 Hz policy step).
+- **RL Training:** Asymmetric Actor-Critic (PPO) via [`rsl_rl`](https://github.com/leggedrobotics/rsl_rl) with a 47-dim proprioceptive policy and 55-dim privileged critic.
+- **Domain Randomization:** Randomization over mass, CoM shift, friction, actuator gains ($K_p, K_d$), and external push impulses for robust sim-to-real transfer.
+- **Hardware Deployment:** Direct 500 Hz communication via Unitree Low-Level DDS (`rt/lowcmd` / `rt/lowstate`) with tuned damping ($K_p = 40.0, K_d = 4.9$) and automatic fall-detection safety.
 
 ---
 
@@ -169,35 +158,32 @@ The control architecture is split across two distinct update frequencies:
 
 The environment uses an asymmetric actor-critic architecture. The policy actor network receives proprioceptive observations (47-dim), while the critic has access to privileged simulation states (55-dim).
 
-#### 1. Policy Actor Observation Space (47 dimensions)
+#### 1. Policy Actor Observations (47 dimensions)
 
-| Indices | Dim | Feature Name | Scale Factor | Mathematical Expression / Source | Physical Meaning |
-|:---:|:---:|---|:---:|---|---|
-| `[0:3]` | 3 | Base Angular Velocity | $\mathbf{0.50}$ | $\omega_{\text{gyro}} \times 0.5$ | Filtered 3D angular velocity in robot base frame ($\text{rad/s}$) |
-| `[3:6]` | 3 | Projected Gravity Vector | $\mathbf{1.00}$ | $[-g_x, -g_y, -g_z] = \mathbf{R}(q_{\text{base}})^T \begin{bmatrix}0\\0\\-1\end{bmatrix}$ | Direction of gravity vector expressed in robot base frame |
-| `[6:18]` | 12 | Joint Position Error | $\mathbf{1.00}$ | $q - q_{\text{default}}$ | Joint angles offset from nominal standing posture ($\text{rad}$) |
-| `[18:30]` | 12 | Joint Velocities | $\mathbf{0.05}$ | $\dot{q} \times 0.05$ | Scaled joint angular velocities from motor encoders ($\text{rad/s}$) |
-| `[30:42]` | 12 | Previous Actions | $\mathbf{1.00}$ | $a_{t-1}$ | Target joint delta commands from previous policy cycle |
-| `[42:45]` | 3 | Commanded Velocity Targets | $\mathbf{1.00}$ | $[v_x^{\text{cmd}}, v_y^{\text{cmd}}, \omega_z^{\text{cmd}}]$ | User velocity commands in body frame ($\text{m/s}, \text{rad/s}$) |
-| `[45:47]` | 2 | Periodic Gait Clock | $\mathbf{1.00}$ | $[\sin(2\pi \phi),\, \cos(2\pi \phi)]$ | Cyclic phase clock ($\phi = (t \bmod T)/T$, period $T = 0.5\,\text{s}$) |
+| Observation | Dim | Scale | Description |
+|---|:---:|:---:|---|
+| Base Angular Velocity | 3 | 0.50 | 3D body angular velocity (roll, pitch, yaw) from IMU gyroscope |
+| Projected Gravity | 3 | 1.00 | Gravity direction vector in robot base frame |
+| Joint Position Error | 12 | 1.00 | Joint angles relative to default standing posture |
+| Joint Velocities | 12 | 0.05 | Joint angular velocities from motor encoders |
+| Previous Actions | 12 | 1.00 | Joint delta targets from previous policy step |
+| Commanded Velocity Targets | 3 | 1.00 | User velocity commands in body frame ($v_x, v_y, \omega_z$) |
+| Periodic Gait Clock | 2 | 1.00 | Cyclic trotting phase clock ($\sin, \cos$) |
 
-#### 2. Critic Privileged Observation Space (55 dimensions)
+#### 2. Critic Privileged Observations (55 dimensions)
 
-During training in Genesis, the critic value network evaluates state values using ground-truth physical quantities, allowing asymmetric learning without relying on noisy state estimation:
-
-| Indices | Dim | Feature Name | Scale Factor | Mathematical Expression / Source | Physical Meaning |
-|:---:|:---:|---|:---:|---|---|
-| `[0:3]` | 3 | Base Linear Velocity (Body Frame) | $\mathbf{2.00}$ | $\mathbf{v}_{\text{body}} \times 2.0 = \mathbf{R}(q_{\text{base}})^T \mathbf{v}_{\text{world}} \times 2.0$ | Ground-truth 3D torso linear velocity ($v_x, v_y, v_z$) without sensor lag |
-| `[3:6]` | 3 | Base Angular Velocity | $\mathbf{0.50}$ | $\omega_{\text{base}} \times 0.5$ | Ground-truth 3D torso angular velocity ($\omega_x, \omega_y, \omega_z$) in base frame |
-| `[6:7]` | 1 | Base Torso Height ($z$) | $\mathbf{1.00}$ | $z_{\text{base}} \times 1.0$ | Ground-truth vertical distance of robot base frame above terrain plane ($\text{m}$) |
-| `[7:10]` | 3 | Projected Gravity Vector | $\mathbf{1.00}$ | $[-g_x, -g_y, -g_z] = \mathbf{R}(q_{\text{base}})^T \begin{bmatrix}0\\0\\-1\end{bmatrix}$ | Exact gravitational direction vector without IMU integration drift |
-| `[10:22]` | 12 | Joint Position Errors | $\mathbf{1.00}$ | $q - q_{\text{default}}$ | Exact joint angles offset from default standing posture ($\text{rad}$) |
-| `[22:34]` | 12 | Joint Angular Velocities | $\mathbf{0.05}$ | $\dot{q} \times 0.05$ | Clean joint angular velocities without encoder differentiation noise ($\text{rad/s}$) |
-| `[34:37]` | 3 | Commanded Velocity Targets | $\mathbf{1.00}$ | $[v_x^{\text{cmd}}, v_y^{\text{cmd}}, \omega_z^{\text{cmd}}]$ | Commanded velocity setpoints in robot body frame ($\text{m/s}, \text{rad/s}$) |
-| `[37:41]` | 4 | Feet Flight Air Time | $\mathbf{1.00}$ | $\mathbf{t}_{\text{air}} = [t_{\text{air}}^{\text{FL}}, t_{\text{air}}^{\text{FR}}, t_{\text{air}}^{\text{RL}}, t_{\text{air}}^{\text{RR}}]$ | Accumulated swing phase flight duration for each individual leg ($\text{s}$) |
-| `[41:53]` | 12 | Previous Actions | $\mathbf{1.00}$ | $a_{t-1}$ | Preceding policy joint position target deltas emitted by the actor |
-| `[53:54]` | 1 | Periodic Gait Clock (Sin) | $\mathbf{1.00}$ | $\sin(2\pi \phi),\;\phi = (t \bmod T)/T$ | Fundamental sine harmonic of cyclical trotting gait generator ($T = 0.5\,\text{s}$) |
-| `[54:55]` | 1 | Periodic Gait Clock (Cos) | $\mathbf{1.00}$ | $\cos(2\pi \phi),\;\phi = (t \bmod T)/T$ | Fundamental cosine harmonic of cyclical trotting gait generator ($T = 0.5\,\text{s}$) |
+| Observation | Dim | Scale | Description |
+|---|:---:|:---:|---|
+| Base Linear Velocity | 3 | 2.00 | Ground-truth 3D torso linear velocity in base frame |
+| Base Angular Velocity | 3 | 0.50 | Ground-truth 3D torso angular velocity |
+| Base Torso Height | 1 | 1.00 | Ground-truth torso height above ground plane |
+| Projected Gravity | 3 | 1.00 | Ground-truth gravity vector in base frame |
+| Joint Position Errors | 12 | 1.00 | Exact joint angles relative to default posture |
+| Joint Angular Velocities | 12 | 0.05 | Exact joint angular velocities |
+| Commanded Velocity Targets | 3 | 1.00 | Commanded velocity setpoints ($v_x, v_y, \omega_z$) |
+| Feet Flight Air Time | 4 | 1.00 | Swing phase flight duration for each leg |
+| Previous Actions | 12 | 1.00 | Preceding joint delta targets from the actor |
+| Periodic Gait Clock | 2 | 1.00 | Cyclic trotting phase clock ($\sin, \cos$) |
 
 ---
 
@@ -220,58 +206,55 @@ where:
 
 ### Domain Randomization
 
-To bridge the sim-to-real reality gap, aggressive domain randomization is applied at environment resets and runtime simulation steps:
+To bridge the sim-to-real gap, domain randomization is applied at environment resets and runtime simulation steps:
 
-| Parameter Name | Config Variable | Nominal Value | Randomized Range | Unit | Perturbation Formulation | Physical Meaning & Sim-to-Real Role |
-|---|---|:---:|:---:|:---:|---|---|
-| **Base Added Mass** | `mass_shift_range` | $0.0$ | $[-1.00,\, +2.50]$ | $\text{kg}$ | $m_{\text{base}} \leftarrow m_{\text{base}} + \Delta m$ | Accounts for battery aging, payloads, and compute hardware additions |
-| **Center of Mass (CoM) Displacement** | `com_shift_range` | $(0, 0, 0)$ | $[\pm 0.04,\, \pm 0.04,\, \pm 0.04]$ | $\text{m}$ | $\mathbf{r}_{\text{CoM}} \leftarrow \mathbf{r}_{\text{CoM}} + \Delta \mathbf{r}$ | Robustness against asymmetric weight distribution causing pitch/roll tilt |
-| **Ground Friction Coefficient** | `friction_range` | $1.00$ | $[0.05,\, 3.00]$ | — | $\mu \sim \mathcal{U}(0.05, 3.0)$ | Generalizes across slippery lab tiles, rugs, wood, and rough asphalt |
-| **Joint Viscous Damping** | `damping_range` | $0.05$ | $[0.02,\, 0.40]$ | $\text{N}\cdot\text{s}/\text{rad}$ | $D_j \sim \mathcal{U}(0.02, 0.40)$ | Emulates motor back-EMF variations and bearing grease viscosity |
-| **Joint Dry Friction Loss** | `frictionloss_range` | $0.05$ | $[0.02,\, 0.50]$ | $\text{N}\cdot\text{m}$ | $\tau_{\text{loss}} \sim \mathcal{U}(0.02, 0.50)$ | Bridges Coulomb friction and planetary gear stiction across joints |
-| **Rotor Armature Inertia** | `armature_range` | $0.002$ | $[0.001,\, 0.008]$ | $\text{kg}\cdot\text{m}^2$ | $I_{\text{rotor}} \sim \mathcal{U}(0.001, 0.008)$ | Models motor rotor inertia reflected through the 6.33:1 gearbox reduction |
-| **Joint Proportional Gain ($K_p$)** | `kp_range` | $40.0$ | $[20.0,\, 80.0]$ | $\text{N}\cdot\text{m}/\text{rad}$ | $K_p \sim \mathcal{U}(20.0, 80.0)$ | Invariance to joint position tracking stiffness; deployed at $K_p = 40.0$ |
-| **Joint Derivative Gain ($K_d$)** | `kv_range` | $1.0$ | $[0.20,\, 5.00]$ | $\text{N}\cdot\text{m}\cdot\text{s}/\text{rad}$ | $K_d \sim \mathcal{U}(0.20, 5.00)$ | Allows high electronic damping ($K_d = 4.9$) to quench touchdown vibration |
-| **Motor Torque Limit Scaling** | `torque_limit_scale_range` | $1.00$ | $[0.70,\, 1.00]$ | — | $\tau_{\text{max}} \leftarrow \alpha \cdot \tau_{\text{nominal}}$ | Prevents over-reliance on peak torque; accommodates voltage drops |
-| **External Push Impulses** | `max_push_force` | $0.0$ | $[0.0,\, 150.0]$ ($p = 0.01$) | $\text{N}$ | $\mathbf{F}_{\text{push}} \sim \mathcal{U}(0, 150)\,\text{N}$ | Teaches balance recovery and active foot placement under external collisions |
-| **Gyroscope Observation Noise** | `actor_ang_vel` | $0.0$ | $\sigma = 0.05$ | $\text{rad/s}$ | $\omega_{\text{gyro}} + \mathcal{N}(0, 0.05^2)$ | Emulates real MEMS inertial sensor bias drift and high-frequency noise |
-| **Gravity Vector Noise** | `actor_gravity` | $0.0$ | $\sigma = 0.02$ | — | $\mathbf{g}_{\text{proj}} + \mathcal{N}(0, 0.02^2)$ | Accounts for orientation filter estimation uncertainty during dynamic motion |
-| **Joint Encoder Position Noise** | `actor_dof_pos` | $0.0$ | $\sigma = 0.01$ ($0.57^\circ$) | $\text{rad}$ | $q + \mathcal{N}(0, 0.01^2)$ | Models optical/magnetic encoder resolution limits and link compliance |
-| **Joint Velocity Noise** | `actor_dof_vel` | $0.0$ | $\sigma = 0.50$ | $\text{rad/s}$ | $\dot{q} + \mathcal{N}(0, 0.50^2)$ | Models discrete numerical differentiation noise from hardware motor state |
+| Parameter | Randomized Range | Description |
+|---|:---:|---|
+| **Base Added Mass** | -1.0 to +2.5 kg | Payload and battery weight variations |
+| **Center of Mass (CoM) Shift** | ±4 cm (x, y, z) | Asymmetric weight distribution |
+| **Ground Friction** | 0.05 to 3.00 | Generalizes across tiles, wood, carpet, and pavement |
+| **Joint Damping** | 0.02 to 0.40 N·s/rad | Motor back-EMF and bearing grease viscosity |
+| **Joint Friction Loss** | 0.02 to 0.50 N·m | Coulomb friction and gearbox stiction |
+| **Rotor Armature Inertia** | 0.001 to 0.008 kg·m² | Reflected motor rotor inertia through gearbox |
+| **Joint Stiffness ($K_p$)** | 20.0 to 80.0 N·m/rad | Position tracking stiffness (deployed at 40.0) |
+| **Joint Damping ($K_d$)** | 0.20 to 5.00 N·m·s/rad | Damping variation (deployed at 4.9) |
+| **Torque Limit Scale** | 70% to 100% | Motor torque scaling and voltage drop margin |
+| **External Push Impulses** | 0 to 150 N | External lateral pushes to teach balance recovery |
+| **Gyroscope Noise** | std = 0.05 rad/s | MEMS IMU angular rate sensor noise |
+| **Gravity Vector Noise** | std = 0.02 | Base orientation estimation uncertainty |
+| **Joint Position Noise** | std = 0.01 rad (0.57°) | Encoder resolution limits and link compliance |
+| **Joint Velocity Noise** | std = 0.50 rad/s | Numerical differentiation noise from motor state |
 
 ---
 
 ### Reward Formulation
 
-The total reinforcement learning reward is composed of 22 individual objectives covering command tracking, gait shaping, energy minimization, and safety constraints. 
+The reward function balances velocity tracking, gait quality, energy efficiency, and safety constraints across 22 objectives:
 
-Per policy step, the aggregated reward is scaled by the policy timestep ($dt = 0.02\,\text{s}$):
-$$R_{\text{step}} = dt \times \left( \sum_{i} w_i \cdot r_i + r_{\text{termination}} \right)$$
-
-| Category | Reward Term | Config Parameter | Scale ($w_i$) | Mathematical Expression / Condition | Description & Behavioral Impact |
-|---|---|---|:---:|---|---|
-| **Command Tracking** | Linear Velocity X | `reward_scales_tracking_vx` | $\mathbf{+1.00}$ | $\exp\left(-\frac{(v_x^{\text{cmd}} - v_x)^2}{\sigma_{vx}}\right),\;\sigma_{vx}=0.25$ | Accurately track commanded forward / backward body velocity |
-| | Linear Velocity Y | `reward_scales_tracking_vy` | $\mathbf{+1.00}$ | $\exp\left(-\frac{(v_y^{\text{cmd}} - v_y)^2}{\sigma_{vx}}\right),\;\sigma_{vx}=0.25$ | Accurately track commanded lateral strafing velocity |
-| | Yaw Rate Z | `reward_scales_tracking_wz` | $\mathbf{+1.00}$ | $\exp\left(-\frac{(\omega_z^{\text{cmd}} - \omega_z)^2}{\sigma_{wz}}\right),\;\sigma_{wz}=0.25$ | Accurately track commanded rotational heading turn rate |
-| **Gait & Cadence** | Feet Air Time | `reward_scales_feet_air_time` | $\mathbf{+1.50}$ | $\sum_{i=1}^4 (t_{\text{air}, i} - 0.15)\cdot \mathbb{I}_{\text{first\_contact}}$ | Encourages dynamic flight phase ($150\,\text{ms}$ target) and prevents leg dragging |
-| | Phase Contact Sync | `reward_scales_contact` | $\mathbf{+0.50}$ | $\frac{1}{4}\sum \neg(\text{contact}_i \oplus \text{stance}_i)$ | Synchronizes foot stance with cyclic clock reference ($\phi_{\text{stance}} < 0.55$) |
-| | Feet Swing Height | `reward_scales_feet_swing_height` | $\mathbf{+0.50}$ | $\sum \exp\left(-\frac{(h_i - h_{\text{target}}(\phi))^2}{0.005}\right) \cdot \mathbb{I}_{\text{swing}}$ | Tracks dynamic sinusoidal clearance arc ($10\,\text{cm}$ apex) during swing |
-| | Foot Slip Penalty | `reward_scales_foot_slip` | $\mathbf{-0.25}$ | $\sum_{i=1}^4 \Vert v_{xy, i}^{\text{foot}} \Vert^2 \cdot \mathbb{I}_{\text{contact}, i}$ | Penalizes foot skidding while in contact with the ground |
-| | Foot Clearance | `reward_scales_foot_clearance` | $\mathbf{0.00}$ | $\sum \mathbb{I}_{\text{swing}} \cdot (h_{\text{target}} - h_z)^2 \cdot \Vert v_{xy} \Vert$ | Secondary obstacle clearance term (disabled in favor of swing height) |
-| **Base Posture** | Base Height | `reward_scales_base_height` | $\mathbf{-30.00}$ | $(h_{\text{base}} - 0.31)^2$ | Enforces nominal walking torso clearance ($0.31\,\text{m}$ above ground) |
-| | Vertical Velocity | `reward_scales_lin_vel_z` | $\mathbf{-2.00}$ | $v_z^2$ | Suppresses vertical body bobbing and energy-wasting torso bounce |
-| | Base Angular Rates | `reward_scales_base_roll_pitch_rates` | $\mathbf{-0.05}$ | $\omega_{\text{roll}}^2 + \omega_{\text{pitch}}^2$ | Minimizes parasite body rocking in roll and pitch orientations |
-| | Stand Still Posture | `reward_scales_stand_still` | $\mathbf{-0.40}$ | $\sum \vert q_j - q_{\text{default}, j} \vert \cdot \mathbb{I}_{\Vert v^{\text{cmd}} \Vert < 0.1}$ | Holds clean upright posture without wandering when zero command is issued |
-| | Nominal Joint Posture | `reward_scales_dof_pos` | $\mathbf{-0.50}$ | $\sum_{j=1}^{12} (q_j - q_{\text{default}, j})^2$ | Regularizes all joints toward default standing bias angles |
-| | Hip Splay Deviation | `reward_scales_hip_deviation_penalty` | $\mathbf{-2.00}$ | $\sum_{j \in \text{hips}} q_j^2$ | Restricts lateral hip abduction/adduction to prevent wide-splay walking |
-| **Smoothness & Energy** | Action Rate ($\Delta a$) | `reward_scales_action_rate` | $\mathbf{-0.01}$ | $\sum_{j=1}^{12} (a_{t, j} - a_{t-1, j})^2$ | Penalizes high-frequency command jitter and motor heating |
-| | Joint Accelerations | `reward_scales_dof_acc` | $\mathbf{-5.0\times 10^{-7}}$ | $\sum_{j=1}^{12} \left(\frac{\dot{q}_{t, j} - \dot{q}_{t-1, j}}{dt}\right)^2$ | Suppresses mechanical shock waves and jerky actuator acceleration |
-| | Joint Velocities | `reward_scales_dof_vel` | $\mathbf{-1.0\times 10^{-3}}$ | $\sum_{j=1}^{12} \dot{q}_j^2$ | Encourages energy efficiency by penalizing excessive motor spinning speed |
-| | Motor Torques | `reward_scales_torques` | $\mathbf{-1.0\times 10^{-5}}$ | $\sum_{j=1}^{12} \tau_j^2$ | Minimizes $I^2 R$ electrical power dissipation and actuator thermal load |
-| **Safety & Limits** | Soft Joint Limits | `reward_scales_dof_pos_limits_soft` | $\mathbf{-0.10}$ | $\sum \left( \max(0, q_{\text{min}} + \delta - q)^2 + \max(0, q - (q_{\text{max}} - \delta))^2 \right)$ | Soft barrier penalty when joint positions enter within 10% of physical limits |
-| | Body Link Collision | `reward_scales_collision` | $\mathbf{-1.00}$ | $\sum \mathbb{I}_{\text{contact}}(\text{hips, thighs})$ | Penalizes self-collisions and ground contacts on structural links |
-| | Survival Bonus | `reward_scales_survival` | $\mathbf{+1.00}$ | $+1.0$ per alive timestep | Constant positive incentive to prevent premature termination |
-| | Terminal Fall Penalty | `reward_scales_termination_penalty` | $\mathbf{-500.00}$ | $\mathbb{I}\left(\vert\text{roll}\vert > 1.0 \lor \vert\text{pitch}\vert > 1.0 \lor h_{\text{base}} < 0.18\right)$ | Massive catastrophic penalty upon fall, rollover, or base collapse |
+| Category | Term | Weight | Description |
+|---|---|:---:|---|
+| **Command Tracking** | Linear Velocity X | +1.00 | Track commanded forward / backward body velocity |
+| | Linear Velocity Y | +1.00 | Track commanded lateral strafing velocity |
+| | Yaw Rate Z | +1.00 | Track commanded heading turn rate |
+| **Gait & Cadence** | Feet Air Time | +1.50 | Encourage dynamic flight phase (~150 ms target) and prevent dragging |
+| | Phase Contact Sync | +0.50 | Synchronize foot contacts with cyclic gait clock |
+| | Feet Swing Height | +0.50 | Track desired clearance arc during swing |
+| | Foot Slip Penalty | -0.25 | Penalize foot skidding while in contact with ground |
+| | Foot Clearance | 0.00 | Secondary obstacle clearance (inactive) |
+| **Base Posture** | Base Height | -30.00 | Maintain nominal torso clearance (0.31 m) |
+| | Vertical Velocity | -2.00 | Suppress vertical body bobbing and bouncing |
+| | Base Angular Rates | -0.05 | Minimize body rocking in roll and pitch |
+| | Stand Still Posture | -0.40 | Hold clean upright posture when zero velocity is commanded |
+| | Nominal Joint Posture | -0.50 | Regularize joints toward default standing posture |
+| | Hip Splay Deviation | -2.00 | Restrict lateral hip splay |
+| **Smoothness & Energy** | Action Rate ($\Delta a$) | -0.01 | Penalize high-frequency command jitter |
+| | Joint Accelerations | -5e-7 | Suppress abrupt actuator accelerations |
+| | Joint Velocities | -1e-3 | Penalize excessive motor spinning speed |
+| | Motor Torques | -1e-5 | Minimize power consumption and actuator thermal load |
+| **Safety & Limits** | Soft Joint Limits | -0.10 | Soft barrier penalty when joints near range limits |
+| | Body Link Collision | -1.00 | Penalize self-collisions and base/thigh ground contacts |
+| | Survival Bonus | +1.00 | Constant incentive per alive timestep |
+| | Terminal Fall Penalty | -500.00 | Large penalty upon fall, rollover, or base collapse |
 
 ---
 
@@ -419,14 +402,14 @@ Train the locomotion policy in Genesis across 4,096 parallel environments with d
 ```bash
 # Train from scratch with domain randomization enabled
 python scripts/train.py \
-  --exp_name go2_walk_seven \
+  --exp_name go2_walk \
   --domain \
   --num_envs 4096 \
   --max_iter 10000
 
 # Resume training from a specific checkpoint
 python scripts/train.py \
-  --exp_name go2_walk_seven \
+  --exp_name go2_walk \
   --domain \
   --resume \
   --ckpt 5000
@@ -439,10 +422,12 @@ tensorboard --logdir logs/
 
 ---
 
-### 3. Simulation Playback & Interactive Control
+### 3. Pretrained Policy Playback (go2_walk_seven / model_10000.pt)
 
-Test your trained checkpoint interactively in Genesis using real-time keyboard control:
+The trained policy checkpoint from the `go2_walk_seven` training run at iteration 10,000 is stored at `logs/go2_walk_seven/model_10000.pt`. You can evaluate and run this policy across Genesis simulation, MuJoCo (`mjlab`), and physical Go2 hardware:
 
+#### A. Interactive Simulation in Genesis (Keyboard Control)
+Run the real-time interactive controller in Genesis:
 ```bash
 python scripts/walk_controller_with_keyboard.py \
   --exp_name go2_walk_seven \
@@ -451,11 +436,19 @@ python scripts/walk_controller_with_keyboard.py \
 ```
 
 **Keyboard Controls:**
-| Key | Action |
-|---|---|
-| `Up` / `Down` | Forward / Backward Velocity ($v_x \in [-1.0, 1.0]\,\text{m/s}$) |
-| `Left` / `Right` | Lateral Left / Right Velocity ($v_y \in [-1.0, 1.0]\,\text{m/s}$) |
-| `Numpad 1` / `Numpad 3` | Turn Left / Right Yaw Rate ($\omega_z \in [-1.0, 1.0]\,\text{rad/s}$) |
+| Key | Action | Envelope |
+|---|---|:---:|
+| `Up` / `Down` | Forward / Backward Velocity | $v_x \in [-1.0, 1.0]$ m/s |
+| `Left` / `Right` | Lateral Left / Right Velocity | $v_y \in [-1.0, 1.0]$ m/s |
+| `Numpad 1` / `Numpad 3` (or `1` / `3`) | Heading Turn Rate (Yaw) | $\omega_z \in [-1.0, 1.0]$ rad/s |
+
+
+#### B. Deploy to Physical Go2 Hardware
+Deploy zero-shot onto the real robot via Unitree Low-Level DDS:
+```bash
+sudo $(which python) unitree_sdk2_python/example/go2/low_level/custom_test_file.py
+```
+*(The script automatically loads `logs/go2_walk_seven/model_10000.pt`, ramps from resting posture to standing over 2 seconds, and runs the 50 Hz closed-loop policy with $K_p = 40.0, K_d = 4.9$.)*
 
 ---
 
