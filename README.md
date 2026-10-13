@@ -37,14 +37,14 @@
         <img src="https://img.youtube.com/vi/0ZMWlH1WIyI/maxresdefault.jpg" alt="Go2 Hardware Locomotion Demo 1" width="100%" />
       </a>
       <br />
-      <a href="https://www.youtube.com/shorts/0ZMWlH1WIyI"><b>▶️ Watch Demo 1 (YouTube Shorts)</b></a>
+      <a href="https://www.youtube.com/shorts/0ZMWlH1WIyI"><b>Watch Demo 1</b></a>
     </td>
     <td align="center" width="50%">
       <a href="https://www.youtube.com/shorts/KFbTj_H0R_Y" target="_blank">
         <img src="https://img.youtube.com/vi/KFbTj_H0R_Y/maxresdefault.jpg" alt="Go2 Hardware Locomotion Demo 2" width="100%" />
       </a>
       <br />
-      <a href="https://www.youtube.com/shorts/KFbTj_H0R_Y"><b>▶️ Watch Demo 2 (YouTube Shorts)</b></a>
+      <a href="https://www.youtube.com/shorts/KFbTj_H0R_Y"><b>Watch Demo 2</b></a>
     </td>
   </tr>
 </table>
