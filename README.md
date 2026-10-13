@@ -189,18 +189,21 @@ The environment uses an asymmetric actor-critic architecture. The policy actor n
 
 ### Action Space
 
-The policy outputs 12-dimensional joint position target deltas $a_t \in \mathbb{R}^{12}$:
-$$q_{\text{target}} = q_{\text{default}} + a_t \times \text{action\_scale}$$
-where:
-- $\text{action\_scale} = 0.25$
-- Nominal default joint posture $q_{\text{default}}$ (hip, thigh, calf):
-  - Hip: $0.0^\circ$ ($0.0\,\text{rad}$)
-  - Thigh: $+50.0^\circ$ ($0.8726\,\text{rad}$) for FL/FR, $+55.0^\circ$ ($0.9599\,\text{rad}$) for RL/RR
-  - Calf: $-90.0^\circ$ ($-1.5708\,\text{rad}$) for all legs
-- Clamped within mechanical joint safety bounds:
-  - Hip abduction/adduction: $[-20^\circ, +20^\circ]$
-  - Thigh flexion/extension: $[-90^\circ, +200^\circ]$ (front), $[-30^\circ, +260^\circ]$ (rear)
-  - Calf flexion/extension: $[-156^\circ, -48^\circ]$
+The policy outputs 12-dimensional joint position target deltas added to the nominal standing posture:
+
+```text
+target_joint_pos = default_joint_pos + (action * 0.25)
+```
+
+- **Action Scale:** `0.25`
+- **Nominal Default Posture (hip, thigh, calf):**
+  - **Hip:** 0.0° (0.0 rad)
+  - **Thigh:** +50.0° (0.8726 rad) for FL/FR, +55.0° (0.9599 rad) for RL/RR
+  - **Calf:** -90.0° (-1.5708 rad) for all legs
+- **Joint Mechanical Safety Bounds:**
+  - **Hip abduction/adduction:** [-20°, +20°]
+  - **Thigh flexion/extension:** [-90°, +200°] (front), [-30°, +260°] (rear)
+  - **Calf flexion/extension:** [-156°, -48°]
 
 ---
 
