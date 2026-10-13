@@ -1,4 +1,6 @@
 import os
+os.environ['PYOPENGL_PLATFORM'] = 'glx'
+
 import shutil
 import pickle
 import torch
@@ -7,26 +9,30 @@ import rsl_rl
 from rsl_rl.runners import OnPolicyRunner
 import yaml
 import argparse
-from src.env import WalkENV
+from src.env import WalkWithoutVx, QuadrupedWalk
 from configs.env_configs import WalkEnvCfg
 
 def main():
     gs.init(backend=gs.gpu, logging_level="warning")
 
-
     parser = argparse.ArgumentParser()
     parser.add_argument("-e", "--exp_name", type=str, default="go2_train_first")
+    parser.add_argument("-d", "--domain", action="store_true", help="Whether to enable domain randomization")
     parser.add_argument("-r", "--resume", action="store_true", help="Whether to resume training from the last checkpoint")
     parser.add_argument("--ckpt", type=int, default=None, help="Checkpoint number from where to resume training.")
+    parser.add_argument("--num_envs", type=int, default=4096, help="Number of parallel envs")
+    parser.add_argument("--render", action="store_true", help="Whether to show the simulator window")
+    parser.add_argument("--max_iter", type=int, default=10000, help="Number of total training iterations")
     args = parser.parse_args()
 
     exp_name = args.exp_name
-    num_envs = 4096
-    max_iterations = 10000
+    num_envs = args.num_envs
+    render = args.render
+    max_iterations = args.max_iter
 
     config = WalkEnvCfg(device=gs.device, num_envs=num_envs)
 
-    env = WalkENV(config=config, render=False, plane=True)
+    env = QuadrupedWalk(config=config, render=args.render, plane=True, domain_randomize=args.domain)
 
     log_dir = f"logs/{exp_name}"
 
@@ -40,7 +46,7 @@ def main():
 
     if args.resume:
         if args.ckpt:
-            resume_path = os.path.join(log_dir, f"model_{args.ckpt}.pt")
+            resume_path = os.path.join(log_dir, f"model_{args.ckpt}.pt")    
             print(f"Resuming training from checkpoint: {resume_path}")
             runner.load(resume_path)
         else:
