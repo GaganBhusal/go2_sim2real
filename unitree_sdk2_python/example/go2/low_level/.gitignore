@@ -1,0 +1,16 @@
+# Ignore recorded robot data
+*.npy
+*.csv
+
+# Python cache
+__pycache__/
+
+# Local experimental scripts not intended for repository
+configs/
+custom_test_file_previous.py
+custom_test_file_visualize.py
+env_configs.py
+stance_adjustment.py
+stand_sliders.py
+testing_controller.py
+visualize_robot_data.py
