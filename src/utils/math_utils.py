@@ -23,3 +23,18 @@ def _calculate_projected_acceleration(base_quat):
     gz = 1 - 2 * (x*x + y*y)
     return torch.stack([-gx, -gy, -gz], dim=1)
 
+def _euler_to_quat(xyz):
+    out = torch.empty(xyz.shape[:-1] + (4,), dtype=xyz.dtype, device=xyz.device)
+
+    roll2, pitch2, yaw2 = (0.5 * xyz).unbind(-1)
+    cosr, sinr = roll2.cos(), roll2.sin()
+    cosp, sinp = pitch2.cos(), pitch2.sin()
+    cosy, siny = yaw2.cos(), yaw2.sin()
+    sign = 1.0
+
+    out[..., 0] = cosr * cosp * cosy + sign * sinr * sinp * siny
+    out[..., 1] = sinr * cosp * cosy - sign * cosr * sinp * siny
+    out[..., 2] = cosr * sinp * cosy + sign * sinr * cosp * siny
+    out[..., 3] = cosr * cosp * siny - sign * sinr * sinp * cosy
+
+    return out
