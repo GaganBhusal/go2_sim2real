@@ -4,7 +4,7 @@ runner:
 
   obs_groups:
     actor: ["policy"]
-    critic: ["policy"]
+    critic: ["privileged"]
 
   algorithm:
     class_name: PPO
